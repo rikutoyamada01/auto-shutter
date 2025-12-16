@@ -8,6 +8,7 @@ from ultralytics import YOLO # type: ignore
 
 from measure_distance import detect_person_distance2sideedge
 from detect_circle_gesture import detect_circle_gesture
+from profiler import profiler
 
 # --- 設定値管理 ---
 @dataclass(frozen=True)
@@ -69,6 +70,10 @@ class PhotoBoothApp:
         # ジェスチャー検出結果のキャッシュ
         self.last_gesture_detected = False
         self.last_frame_with_pose = None
+        
+        # Adjust状態のキャッシュ
+        self.last_adjust_frame = None
+        self.last_is_at_edge = False
 
     def initialize(self):
         """カメラとAIモデルの初期化"""
@@ -117,22 +122,28 @@ class PhotoBoothApp:
             while True:
                 start_time = time.time()
                 
-                ret, frame = self.read_latest(self.cap)
+
+                with profiler.measure("cap_read"):
+                    ret, frame = self.read_latest(self.cap)
                 if not ret:
                     print("フレームの読み込みに失敗")
                     continue
 
                 # 鏡のように左右反転（UX向上のため）
-                frame = cv2.flip(frame, 1)
+                with profiler.measure("cv2_flip"):
+                    frame = cv2.flip(frame, 1)
 
                 # 現在の状態に応じた処理を実行
                 # process_state内でframeに描画(上書き)を行う
-                self._process_state(frame)
+                with profiler.measure(f"process_state_{self.state.name}"):
+                    self._process_state(frame)
 
                 # UI情報のオーバーレイ描画
-                self._draw_ui(frame)
+                with profiler.measure("draw_ui"):
+                    self._draw_ui(frame)
 
-                cv2.imshow(self.config.WINDOW_NAME, frame)
+                with profiler.measure("imshow"):
+                    cv2.imshow(self.config.WINDOW_NAME, frame)
 
                 # 入力処理
                 if not self._handle_input():
@@ -170,7 +181,8 @@ class PhotoBoothApp:
         """READY: 丸ジェスチャーを待機"""
         # 5フレームに1回だけ推論
         if self.state_timer % 5 == 0: 
-            self.last_frame_with_pose, self.last_gesture_detected = detect_circle_gesture(frame)
+            with profiler.measure("detect_circle_gesture"):
+                self.last_frame_with_pose, self.last_gesture_detected = detect_circle_gesture(frame)
         
         # 描画結果を反映 (キャッシュから)
         # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
@@ -183,6 +195,8 @@ class PhotoBoothApp:
             self._transition_to(AppState.ADJUST)
         else:
             cv2.putText(frame, "Make a Circle to Start", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+        
+        self.state_timer += 1
 
     def _handle_adjust(self, frame):
         """ADJUST: 位置調整"""
@@ -192,16 +206,35 @@ class PhotoBoothApp:
         # ---------------------------------------------
 
         try:
-            # 距離・位置判定
-            # もし detect_person... が外部ファイルになくても止まらないようにtryで囲むのが安全です
-            result = detect_person_distance2sideedge(frame, self.config.MARGIN)
-            
-            # 戻り値が正しく2つあるか確認してから代入
-            if result is not None and len(result) == 2:
-                processed_frame, is_at_edge = result
+            # 距離・位置判定 (5フレームに1回)
+            if self.state_timer % 5 == 0:
+                # もし detect_person... が外部ファイルになくても止まらないようにtryで囲むのが安全です
+                with profiler.measure("detect_person_distance"):
+                    # 注意: detect_person_distance2sideedge は frame を直接変更して返す
+                    result = detect_person_distance2sideedge(frame.copy(), self.config.MARGIN)
                 
+                # 戻り値が正しく2つあるか確認してから代入
+                if result is not None and len(result) == 2:
+                    processed_frame_res, is_at_edge_res = result
+                    self.last_adjust_frame = processed_frame_res
+                    self.last_is_at_edge = is_at_edge_res
+                else:
+                    # 失敗時は現在のフレームをキャッシュとして使う（描画なし）
+                    self.last_adjust_frame = frame.copy()
+            
+            # キャッシュを使用
+            if self.last_adjust_frame is not None:
+                processed_frame = self.last_adjust_frame
+                is_at_edge = self.last_is_at_edge
+            else:
+                # 初回などキャッシュがない場合
+                processed_frame = frame
+                is_at_edge = False
+
         except Exception as e:
             print(f"Warning: Distance detection skipped due to error: {e}")
+            processed_frame = frame
+            is_at_edge = False
 
         frame[:] = processed_frame[:] # 描画反映
         
@@ -250,7 +283,8 @@ class PhotoBoothApp:
             # 3. ジェスチャー待ち
             # 5フレームに1回だけ推論
             if self.state_timer % 5 == 0: 
-                self.last_frame_with_pose, self.last_gesture_detected = detect_circle_gesture(frame)
+                with profiler.measure("detect_circle_gesture"):
+                    self.last_frame_with_pose, self.last_gesture_detected = detect_circle_gesture(frame)
             
             # 描画結果を反映 (キャッシュから)
             # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
@@ -312,6 +346,8 @@ class PhotoBoothApp:
         # 次の状態で即座に反応してしまう可能性がある
         self.last_gesture_detected = False
         self.last_frame_with_pose = None
+        self.last_adjust_frame = None
+        self.last_is_at_edge = False
         
         if new_state == AppState.READY:
              self.taken_pictures_count = 0

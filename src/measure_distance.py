@@ -1,5 +1,6 @@
 import cv2
 from ultralytics import YOLO # type: ignore
+from profiler import profiler
 
 model = YOLO("yolo11n.pt")
 def detect_person_distance2sideedge(frame, margin: int):
@@ -16,7 +17,8 @@ def detect_person_distance2sideedge(frame, margin: int):
     h, w = frame.shape[:2]
 
     # 2. 推論 (人クラスのみ)
-    results = model(frame, classes=[0], verbose=False)
+    with profiler.measure("distance_inference"):
+        results = model(frame, classes=[0], verbose=False)
     boxes = results[0].boxes
 
     # --- 判定ロジック: 端にいるか？ ---

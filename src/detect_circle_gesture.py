@@ -1,6 +1,7 @@
 import cv2
 import math
 from ultralytics import YOLO
+from profiler import profiler
 
 # モデルのロード
 pose_model = YOLO("yolo11n-pose.pt")
@@ -14,7 +15,8 @@ def detect_circle_gesture(frame):
     """
     
     # 1. 推論
-    results = pose_model(frame, verbose=False)
+    with profiler.measure("gesture_inference"):
+        results = pose_model(frame, verbose=False)
     draw_frame = frame.copy()
     detected_flag = 0
 
