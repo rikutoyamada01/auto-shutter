@@ -7,8 +7,6 @@ __pycache__/
 *.so
 
 *.pt
-yolo11n-pose_ncnn_model/
-yolo11n_ncnn_model/
 
 # Distribution / packaging
 .Python
