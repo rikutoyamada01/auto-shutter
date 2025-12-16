@@ -5,7 +5,7 @@ import math
 from enum import Enum, auto
 from dataclasses import dataclass
 from ultralytics import YOLO # type: ignore
-from background_subtractor import FixedBackgroundSubtractor
+
 from measure_distance import detect_person_distance2sideedge
 from detect_circle_gesture import detect_circle_gesture
 
@@ -16,6 +16,8 @@ class Config:
     MARGIN: int = 50
     MAX_PICTURE: int = 3
     FPS: int = 30  # FPSを30に設定（処理負荷軽減のため）
+    RESOLUTION_WIDTH: int = 640
+    RESOLUTION_HEIGHT: int = 480
     
     # 時間設定 (秒)
     ADJUST_DURATION_SEC: float = 5.0      # 調整完了までの時間
@@ -64,6 +66,9 @@ class PhotoBoothApp:
         # 撮影カウントダウン用
         self.is_counting_down = False
         self.countdown_timer = 0
+        # ジェスチャー検出結果のキャッシュ
+        self.last_gesture_detected = False
+        self.last_frame_with_pose = None
 
     def initialize(self):
         """カメラとAIモデルの初期化"""
@@ -88,13 +93,15 @@ class PhotoBoothApp:
                 sys.exit(1)
 
             
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.RESOLUTION_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.RESOLUTION_HEIGHT)
         self.cap.set(cv2.CAP_PROP_FPS, self.config.FPS)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # 自動露出OFF (環境による)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.cap.set(cv2.CAP_PROP_EXPOSURE, self.config.EXPOSURE_VAL)
 
         # 背景差分の初期化
-        self.subtractor = FixedBackgroundSubtractor(threshold_val=50)
+
 
         # ウォームアップ
         print("カメラ起動中...")
@@ -124,7 +131,7 @@ class PhotoBoothApp:
 
                 # UI情報のオーバーレイ描画
                 self._draw_ui(frame)
-                
+
                 cv2.imshow(self.config.WINDOW_NAME, frame)
 
                 # 入力処理
@@ -133,8 +140,12 @@ class PhotoBoothApp:
                 
                 # FPS制御
                 elapsed = time.time() - start_time
-                wait_time = max(1, int((1.0 / self.config.FPS - elapsed) * 1000))
-                if cv2.waitKey(wait_time) & 0xFF == ord('q'):
+                sleep_time = (1.0 / self.config.FPS) - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+
+                # 入力処理 (waitKeyはキー入力のみに利用し、待機時間は最小限にする)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
 
         finally:
@@ -157,11 +168,15 @@ class PhotoBoothApp:
 
     def _handle_ready(self, frame):
         """READY: 丸ジェスチャーを待機"""
-        frame_with_pose, detected = detect_circle_gesture(frame)
-        # 描画結果を反映
-        frame[:] = frame_with_pose[:]
+        # 5フレームに1回だけ推論
+        if self.state_timer % 5 == 0: 
+            self.last_frame_with_pose, self.last_gesture_detected = detect_circle_gesture(frame)
+        
+        # 描画結果を反映 (キャッシュから)
+        # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
+        frame[:] = self.last_frame_with_pose if self.last_frame_with_pose is not None else frame.copy()
 
-        if detected:
+        if self.last_gesture_detected:
             cv2.putText(frame, "STARTING!", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
             # 即時遷移せず、少しユーザーにフィードバックを見せたい場合はここで少し待つ処理を入れても良い
             # 今回は即座に遷移
@@ -196,9 +211,12 @@ class PhotoBoothApp:
         
         self.state_timer += 1
         
-        # プログレスバー風表示
+        # プログレスバー風表示 (Result画面に合わせて下部に全幅で表示)
+        h, w = frame.shape[:2]
         progress = self.state_timer / self.config.ADJUST_FRAMES
-        cv2.rectangle(frame, (50, 50), (int(50 + 200 * progress), 70), (0, 255, 0), -1)
+        # 下部20pxのバー
+        cv2.rectangle(frame, (0, h-20), (int(w * progress), h), (0, 255, 0), -1)
+        
         cv2.putText(frame, "Adjusting...", (50, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         if self.state_timer > self.config.ADJUST_FRAMES:
@@ -230,14 +248,19 @@ class PhotoBoothApp:
                 self._perform_capture(frame)
         else:
             # 3. ジェスチャー待ち
-            frame_with_pose, detected = detect_circle_gesture(frame)
-            frame[:] = frame_with_pose[:]
+            # 5フレームに1回だけ推論
+            if self.state_timer % 5 == 0: 
+                self.last_frame_with_pose, self.last_gesture_detected = detect_circle_gesture(frame)
+            
+            # 描画結果を反映 (キャッシュから)
+            # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
+            frame[:] = self.last_frame_with_pose if self.last_frame_with_pose is not None else frame.copy()
             
             cv2.putText(frame, f"Pose for Picture! ({self.taken_pictures_count + 1}/{self.config.MAX_PICTURE})", 
                         (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
             cv2.putText(frame, "Make Circle to Snap", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
 
-            if detected:
+            if self.last_gesture_detected:
                 print("撮影ジェスチャー検知: カウントダウン開始")
                 self.is_counting_down = True
                 self.countdown_timer = self.config.COUNTDOWN_FRAMES
@@ -284,6 +307,12 @@ class PhotoBoothApp:
         self.state_timer = 0
         self.is_counting_down = False # 状態遷移時にカウントダウンはリセット
         
+        # 状態遷移時にジェスチャーキャッシュをリセット
+        # これをしないと、前の状態の「検出済み」フラグが残ってしまい
+        # 次の状態で即座に反応してしまう可能性がある
+        self.last_gesture_detected = False
+        self.last_frame_with_pose = None
+        
         if new_state == AppState.READY:
              self.taken_pictures_count = 0
 
@@ -323,24 +352,29 @@ class PhotoBoothApp:
         alpha = 1.0 - progress  # 徐々に消える
 
         self._shutter_flash_rect(frame, alpha)
-        
+
     def _shutter_flash_rect(self, frame, alpha=1.0):
-        h, w = frame.shape[:2]
+        if alpha > 0.01: # alphaが十分に大きい場合のみ実行
+            h, w = frame.shape[:2]
 
-        overlay = frame.copy()
-        cv2.rectangle(
-            overlay,
-            (0, 0),
-            (w, h),
-            (255, 255, 255),
-            thickness=-1
-        )
+            overlay = frame.copy()
+            cv2.rectangle(
+                overlay,
+                (0, 0),
+                (w, h),
+                (255, 255, 255),
+                thickness=-1
+            )
 
-        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+            frame[:] = cv2.addWeighted(
+                overlay,
+                alpha,
+                frame,
+                1 - alpha,
+                0
+            )
 
-    def read_latest(self, cap, drop=2):
-        for _ in range(drop):
-            cap.read()  # 古いフレームを捨てる
+    def read_latest(self, cap):
         return cap.read()
 
 
