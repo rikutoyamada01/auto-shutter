@@ -1,8 +1,9 @@
 import cv2
 from ultralytics import YOLO # type: ignore
 from profiler import profiler
-
-model = YOLO("yolo11n.pt")
+from model_loader import load_model
+    
+model = load_model("yolo11n", task="detect")
 def detect_person_distance2sideedge(frame, margin: int):
     """_summary_
 
@@ -57,7 +58,7 @@ def detect_person_distance2sideedge(frame, margin: int):
 
 if __name__ == "__main__":
         # 1. モデル読み込み
-    model = YOLO("yolo11n.pt")
+    model = load_model("yolo11n", task="detect")
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("エラー: カメラを開けませんでした。")

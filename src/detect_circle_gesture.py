@@ -2,9 +2,10 @@ import cv2
 import math
 from ultralytics import YOLO
 from profiler import profiler
+from model_loader import load_model
 
 # モデルのロード
-pose_model = YOLO("yolo11n-pose.pt")
+pose_model = load_model("yolo11n-pose", task="pose")
 
 def detect_circle_gesture(frame):
     """

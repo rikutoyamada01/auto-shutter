@@ -9,6 +9,7 @@ from ultralytics import YOLO # type: ignore
 from measure_distance import detect_person_distance2sideedge
 from detect_circle_gesture import detect_circle_gesture
 from profiler import profiler
+from model_loader import load_model
 
 # --- 設定値管理 ---
 @dataclass(frozen=True)
@@ -81,7 +82,7 @@ class PhotoBoothApp:
         
         # YOLOモデルのロード
         print("AIモデルをロード中...")
-        self.pose_model = YOLO("yolo11n-pose.pt")
+        self.pose_model = load_model("yolo11n-pose", task="pose")
 
         # カメラセットアップ
         self.cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
@@ -380,7 +381,7 @@ class PhotoBoothApp:
         except FileNotFoundError:
             return False
         
-    def _shutter_flash(self, frame, t, duration=60):
+    def _shutter_flash(self, frame, t, duration=30):
         """
         t: シャッター開始からの経過秒
         """
