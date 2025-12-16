@@ -4,7 +4,7 @@ import time
 import math
 from enum import Enum, auto
 from dataclasses import dataclass
-from ultralytics import YOLO
+from ultralytics import YOLO # type: ignore
 from background_subtractor import FixedBackgroundSubtractor
 from measure_distance import detect_person_distance2sideedge
 from detect_circle_gesture import detect_circle_gesture
@@ -75,6 +75,12 @@ class PhotoBoothApp:
 
         # カメラセットアップ
         self.cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
+
+        # もしRaspberry Piなら、取り付けてあるカメラを使う。
+        if self.is_raspberry_pi():
+            print("Raspberry Piなので指定のカメラを使います")
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
+
         if not self.cap.isOpened():
             print(f"エラー: カメラ(インデックス: {self.config.CAMERA_INDEX})を開けませんでした。")
             sys.exit(1)
@@ -100,7 +106,7 @@ class PhotoBoothApp:
             while True:
                 start_time = time.time()
                 
-                ret, frame = self.cap.read()
+                ret, frame = self.cap.read() # type: ignore
                 if not ret:
                     print("エラー: フレーム読み込み失敗")
                     break
@@ -295,6 +301,15 @@ class PhotoBoothApp:
             self.cap.release()
         cv2.destroyAllWindows()
         print("終了")
+
+    def is_raspberry_pi(self) -> bool:
+        try:
+            with open("/proc/device-tree/model", "r") as f:
+                model = f.read().lower()
+            return "raspberry pi" in model
+        except FileNotFoundError:
+            return False
+
 
 if __name__ == "__main__":
     app = PhotoBoothApp()

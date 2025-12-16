@@ -1,5 +1,5 @@
 import cv2
-from ultralytics import YOLO
+from ultralytics import YOLO # type: ignore
 
 model = YOLO("yolo11n.pt")
 def detect_person_distance2sideedge(frame, margin: int):
