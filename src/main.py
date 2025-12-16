@@ -81,7 +81,9 @@ class PhotoBoothApp:
             # もしRaspberry Piなら、取り付けてあるカメラを使う。
             if self.is_raspberry_pi():
                 print("Raspberry Piなので指定のカメラを使います")
-                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
+                success = self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
+                if success == False:
+                    sys.exit(1)
             else:
                 sys.exit(1)
 
@@ -109,8 +111,8 @@ class PhotoBoothApp:
                 
                 ret, frame = self.cap.read() # type: ignore
                 if not ret:
-                    print("エラー: フレーム読み込み失敗")
-                    break
+                    print("フレームの読み込みに失敗")
+                    continue
 
                 # 鏡のように左右反転（UX向上のため）
                 frame = cv2.flip(frame, 1)
