@@ -79,7 +79,7 @@ class PhotoBoothApp:
         if not self.cap.isOpened():
             print(f"エラー: カメラ(インデックス: {self.config.CAMERA_INDEX})を開けませんでした。")
             # もしRaspberry Piなら、取り付けてあるカメラを使う。
-            if self.is_raspberry_pi():
+            if self._is_raspberry_pi():
                 print("Raspberry Piなので指定のカメラを使います")
                 success = self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
                 if success == False:
@@ -90,6 +90,7 @@ class PhotoBoothApp:
             
         self.cap.set(cv2.CAP_PROP_FPS, self.config.FPS)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # 自動露出OFF (環境による)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.cap.set(cv2.CAP_PROP_EXPOSURE, self.config.EXPOSURE_VAL)
 
         # 背景差分の初期化
@@ -109,7 +110,7 @@ class PhotoBoothApp:
             while True:
                 start_time = time.time()
                 
-                ret, frame = self.cap.read() # type: ignore
+                ret, frame = self.read_latest(self.cap)
                 if not ret:
                     print("フレームの読み込みに失敗")
                     continue
@@ -256,6 +257,7 @@ class PhotoBoothApp:
     def _handle_cooldown(self, frame):
         """PICTURE_COOLDOWN: 連続撮影防止と確認用"""
         self.state_timer += 1
+        self._shutter_flash(frame, self.state_timer)
         cv2.putText(frame, "Nice Shot!", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 255), 3)
         
         if self.state_timer > self.config.COOLDOWN_FRAMES:
@@ -305,13 +307,42 @@ class PhotoBoothApp:
         cv2.destroyAllWindows()
         print("終了")
 
-    def is_raspberry_pi(self) -> bool:
+    def _is_raspberry_pi(self) -> bool:
         try:
             with open("/proc/device-tree/model", "r") as f:
                 model = f.read().lower()
             return "raspberry pi" in model
         except FileNotFoundError:
             return False
+        
+    def _shutter_flash(self, frame, t, duration=60):
+        """
+        t: シャッター開始からの経過秒
+        """
+        progress = min(t / duration, 1.0)
+        alpha = 1.0 - progress  # 徐々に消える
+
+        self._shutter_flash_rect(frame, alpha)
+        
+    def _shutter_flash_rect(self, frame, alpha=1.0):
+        h, w = frame.shape[:2]
+
+        overlay = frame.copy()
+        cv2.rectangle(
+            overlay,
+            (0, 0),
+            (w, h),
+            (255, 255, 255),
+            thickness=-1
+        )
+
+        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+    def read_latest(self, cap, drop=2):
+        for _ in range(drop):
+            cap.read()  # 古いフレームを捨てる
+        return cap.read()
+
 
 
 if __name__ == "__main__":
