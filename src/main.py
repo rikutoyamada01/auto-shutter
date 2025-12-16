@@ -15,7 +15,7 @@ class Config:
     CAMERA_INDEX: int = 0
     MARGIN: int = 50
     MAX_PICTURE: int = 3
-    FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
+    FPS: int = 5  # FPSを5に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
     RESOLUTION_HEIGHT: int = 480
     
