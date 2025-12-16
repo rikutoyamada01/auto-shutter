@@ -76,14 +76,15 @@ class PhotoBoothApp:
         # カメラセットアップ
         self.cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
 
-        # もしRaspberry Piなら、取り付けてあるカメラを使う。
-        if self.is_raspberry_pi():
-            print("Raspberry Piなので指定のカメラを使います")
-            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
-
         if not self.cap.isOpened():
             print(f"エラー: カメラ(インデックス: {self.config.CAMERA_INDEX})を開けませんでした。")
-            sys.exit(1)
+            # もしRaspberry Piなら、取り付けてあるカメラを使う。
+            if self.is_raspberry_pi():
+                print("Raspberry Piなので指定のカメラを使います")
+                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
+            else:
+                sys.exit(1)
+
             
         self.cap.set(cv2.CAP_PROP_FPS, self.config.FPS)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # 自動露出OFF (環境による)
