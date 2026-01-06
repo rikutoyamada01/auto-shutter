@@ -99,27 +99,25 @@ class PhotoBoothApp:
                 success = self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
                 if success == False:
                     sys.exit(1)
-
-                # モーターの初期化をする
-            
-                try:
-                    from gpiozero import Robot
-                    import gpiozero
-                    print(f"[DEBUG] Using gpiozero pin factory: {gpiozero.Device.pin_factory}")
-                    print("[DEBUG] Initializing Robot (GPIO 17,18,19,20)...")
-                    self.robot = Robot(left=(17,18), right=(19,20))
-                    
-                    # 構成情報の詳細表示
-                    print(f"[DEBUG] Robot Object: {self.robot}")
-                    print(f"[DEBUG] Left Motor: {self.robot.left_motor}")
-                    print(f"[DEBUG] Right Motor: {self.robot.right_motor}")
-                    
-                except Exception as e:
-                     print(f"Warning: Motor initialization or test failed: {e}")
-
-
             else:
                 sys.exit(1)
+
+        # Raspberry Piならロボット（モーター）を初期化する
+        if self.is_pi:
+            try:
+                from gpiozero import Robot
+                import gpiozero
+                print(f"[DEBUG] Using gpiozero pin factory: {gpiozero.Device.pin_factory}")
+                print("[DEBUG] Initializing Robot (GPIO 17,18,19,20)...")
+                self.robot = Robot(left=(17,18), right=(19,20))
+                
+                # 構成情報の詳細表示
+                print(f"[DEBUG] Robot Object: {self.robot}")
+                print(f"[DEBUG] Left Motor: {self.robot.left_motor}")
+                print(f"[DEBUG] Right Motor: {self.robot.right_motor}")
+                
+            except Exception as e:
+                    print(f"Warning: Motor initialization or test failed: {e}")
 
             
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.RESOLUTION_WIDTH)
