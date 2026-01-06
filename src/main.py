@@ -115,7 +115,10 @@ class PhotoBoothApp:
                 print(f"[DEBUG] Robot Object: {self.robot}")
                 print(f"[DEBUG] Left Motor: {self.robot.left_motor}")
                 print(f"[DEBUG] Right Motor: {self.robot.right_motor}")
-                
+            
+            except ImportError as ie:
+                print(f"Error: GPIO library missing. On Raspberry Pi, please run: pip install rpi-lgpio")
+                print(f"Details: {ie}")
             except Exception as e:
                     print(f"Warning: Motor initialization or test failed: {e}")
 

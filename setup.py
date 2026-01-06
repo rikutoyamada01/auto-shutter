@@ -53,6 +53,22 @@ def main():
         "Failed to install requirements."
     )
 
+    # 3.5 Check for Raspberry Pi and install rpi-lgpio
+    is_pi = False
+    try:
+        with open("/proc/device-tree/model", "r") as f:
+            if "raspberry pi" in f.read().lower():
+                is_pi = True
+    except FileNotFoundError:
+        pass
+
+    if is_pi:
+        print("Raspberry Pi detected. Installing 'rpi-lgpio'...")
+        run_command(
+            f"{pip_exe} install rpi-lgpio",
+            "Failed to install rpi-lgpio."
+        )
+
     # 4. Create .vscode/settings.json to configure the editor
     print(f"Configuring VSCode settings at '{SETTINGS_FILE}'...")
     os.makedirs(SETTINGS_DIR, exist_ok=True)
