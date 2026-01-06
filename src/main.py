@@ -59,6 +59,7 @@ class PhotoBoothApp:
         self.cap = None
         self.subtractor = None
         self.pose_model = None
+        self.robot = None
         self.config = Config() # プロパティアクセス用
         
         # 状態管理用変数
@@ -89,12 +90,22 @@ class PhotoBoothApp:
 
         if not self.cap.isOpened():
             print(f"エラー: カメラ(インデックス: {self.config.CAMERA_INDEX})を開けませんでした。")
-            # もしRaspberry Piなら、取り付けてあるカメラを使う。
+            # もしRaspberry Piなら、取り付けてあるカメラを使い、モーターを動かす。
             if self._is_raspberry_pi():
                 print("Raspberry Piなので指定のカメラを使います")
                 success = self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
                 if success == False:
                     sys.exit(1)
+
+                # モーターの初期化をする
+            
+                try:
+                    from gpiozero import Robot
+                    self.robot = Robot(left=(17,18), right=(19,20))
+                except Exception as e:
+                     print(f"Warning: Motor is not working: {e}")
+
+
             else:
                 sys.exit(1)
 
@@ -241,7 +252,20 @@ class PhotoBoothApp:
         
         if is_at_edge:
             cv2.putText(frame, "TOO CLOSE TO EDGE!", (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
-            # ここでロボット制御などを入れるなら実装
+            if self._is_raspberry_pi() and self.robot:
+                # 後退する(ロボット制御)
+                try:
+                    self.robot.backward()
+                except Exception as e:
+                    print(f"Warning: Robot is not moving backward: {e}")
+        else:
+            if self._is_raspberry_pi() and self.robot:
+                try:
+                    self.robot.stop()
+                except:
+                    pass
+                
+
         
         self.state_timer += 1
         
@@ -338,6 +362,14 @@ class PhotoBoothApp:
 
     def _transition_to(self, new_state):
         print(f"Phase Change: {self.state.name} -> {new_state.name}")
+        
+        # 状態遷移時にロボットを停止させる
+        if self.robot:
+            try:
+                self.robot.stop()
+            except:
+                pass
+
         self.state = new_state
         self.state_timer = 0
         self.is_counting_down = False # 状態遷移時にカウントダウンはリセット
@@ -368,6 +400,11 @@ class PhotoBoothApp:
 
     def _cleanup(self):
         print("後処理を実行します...")
+        if self.robot:
+            try:
+                self.robot.stop()
+            except:
+                pass
         if self.cap:
             self.cap.release()
         cv2.destroyAllWindows()
