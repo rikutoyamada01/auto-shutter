@@ -18,8 +18,8 @@ class Config:
     MARGIN: int = 50
     MAX_PICTURE: int = 3
     FPS: int = 5  # FPSを5に設定（処理負荷軽減のため）
-    RESOLUTION_WIDTH: int = 320
-    RESOLUTION_HEIGHT: int = 240
+    RESOLUTION_WIDTH: int = 640
+    RESOLUTION_HEIGHT: int = 480
     
     # 時間設定 (秒)
     ADJUST_DURATION_SEC: float = 5.0      # 調整完了までの時間
@@ -110,22 +110,23 @@ class PhotoBoothApp:
                 print(f"[DEBUG] Using gpiozero pin factory: {gpiozero.Device.pin_factory}")
                 print("[DEBUG] Initializing Robot (GPIO 17,18,19,20)...")
                 
-                # PWMを無効化して単純なON/OFF制御を試す
-                # Robotクラスに直接pwm引数は渡せないので、Motorオブジェクトを作成して渡す
-                motor_left = Motor(forward=17, backward=18, pwm=False)
-                motor_right = Motor(forward=19, backward=20, pwm=False)
-                self.robot = Robot(left=motor_left, right=motor_right)
-                            
-                            # 構成情報の詳細表示
+                # PWMを有効化(デフォルト)に戻し、速度制御できるようにする
+                # 引数を指定しなければデフォルトでpwm=Trueになります
+                self.robot = Robot(left=(17,18), right=(19,20))
+                
+                # 構成情報の詳細表示
                 print(f"[DEBUG] Robot Object: {self.robot}")
                 print(f"[DEBUG] Left Motor: {self.robot.left_motor}")
                 print(f"[DEBUG] Right Motor: {self.robot.right_motor}")
-            
-            except ImportError as ie:
-                print(f"Error: GPIO library missing. On Raspberry Pi, please run: pip install rpi-lgpio")
-                print(f"Details: {ie}")
+                
+                # 接続テスト: 一瞬だけ動かしてみる(速度0.4)
+                print("[DEBUG] Performing Motor Self-Test (0.1s backward at speed 0.1)...")
+                self.robot.backward(speed=0.1) # type: ignore
+                time.sleep(0.1)
+                self.robot.stop()
+                print("[DEBUG] Motor Self-Test Complete.")
             except Exception as e:
-                    print(f"Warning: Motor initialization or test failed: {e}")
+                print(f"Warning: Motor initialization or test failed: {e}")
 
             
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.RESOLUTION_WIDTH)
@@ -273,8 +274,8 @@ class PhotoBoothApp:
             if self.is_pi and self.robot:
                 # 後退する(ロボット制御)
                 try:
-                    print("[DEBUG] Robot BACKWARD")
-                    self.robot.backward()
+                    print("[DEBUG] Robot BACKWARD (Speed: 0.1)")
+                    self.robot.backward(speed=0.1) # type: ignore
                 except Exception as e:
                     print(f"Warning: Robot is not moving backward: {e}")
         else:
