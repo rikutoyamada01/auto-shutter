@@ -120,8 +120,8 @@ class PhotoBoothApp:
                 print(f"[DEBUG] Right Motor: {self.robot.right_motor}")
                 
                 # 接続テスト: 一瞬だけ動かしてみる(速度0.4)
-                print("[DEBUG] Performing Motor Self-Test (0.1s backward at speed 0.1)...")
-                self.robot.backward(speed=0.1) # type: ignore
+                print("[DEBUG] Performing Motor Self-Test (0.1s backward at speed 0.4)...")
+                self.robot.backward(speed=0.4) # type: ignore
                 time.sleep(0.1)
                 self.robot.stop()
                 print("[DEBUG] Motor Self-Test Complete.")
@@ -274,8 +274,8 @@ class PhotoBoothApp:
             if self.is_pi and self.robot:
                 # 後退する(ロボット制御)
                 try:
-                    print("[DEBUG] Robot BACKWARD (Speed: 0.1)")
-                    self.robot.backward(speed=0.1) # type: ignore
+                    print("[DEBUG] Robot BACKWARD (Speed: 0.4)")
+                    self.robot.backward(speed=0.4) # type: ignore
                 except Exception as e:
                     print(f"Warning: Robot is not moving backward: {e}")
         else:
