@@ -76,6 +76,9 @@ class PhotoBoothApp:
         # Adjust状態のキャッシュ
         self.last_adjust_frame = None
         self.last_is_at_edge = False
+        
+        self.is_pi = self._check_is_raspberry_pi()
+        print(f"[DEBUG] Device is Raspberry Pi: {self.is_pi}")
 
     def initialize(self):
         """カメラとAIモデルの初期化"""
@@ -91,7 +94,7 @@ class PhotoBoothApp:
         if not self.cap.isOpened():
             print(f"エラー: カメラ(インデックス: {self.config.CAMERA_INDEX})を開けませんでした。")
             # もしRaspberry Piなら、取り付けてあるカメラを使い、モーターを動かす。
-            if self._is_raspberry_pi():
+            if self.is_pi:
                 print("Raspberry Piなので指定のカメラを使います")
                 success = self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
                 if success == False:
@@ -101,9 +104,18 @@ class PhotoBoothApp:
             
                 try:
                     from gpiozero import Robot
+                    import gpiozero
+                    print(f"[DEBUG] Using gpiozero pin factory: {gpiozero.Device.pin_factory}")
+                    print("[DEBUG] Initializing Robot (GPIO 17,18,19,20)...")
                     self.robot = Robot(left=(17,18), right=(19,20))
+                    
+                    # 構成情報の詳細表示
+                    print(f"[DEBUG] Robot Object: {self.robot}")
+                    print(f"[DEBUG] Left Motor: {self.robot.left_motor}")
+                    print(f"[DEBUG] Right Motor: {self.robot.right_motor}")
+                    
                 except Exception as e:
-                     print(f"Warning: Motor is not working: {e}")
+                     print(f"Warning: Motor initialization or test failed: {e}")
 
 
             else:
@@ -252,15 +264,17 @@ class PhotoBoothApp:
         
         if is_at_edge:
             cv2.putText(frame, "TOO CLOSE TO EDGE!", (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
-            if self._is_raspberry_pi() and self.robot:
+            if self.is_pi and self.robot:
                 # 後退する(ロボット制御)
                 try:
+                    print("[DEBUG] Robot BACKWARD")
                     self.robot.backward()
                 except Exception as e:
                     print(f"Warning: Robot is not moving backward: {e}")
         else:
-            if self._is_raspberry_pi() and self.robot:
+            if self.is_pi and self.robot:
                 try:
+                    # print("[DEBUG] Robot STOP") # ログ過多防止のためコメントアウト。必要なら解除
                     self.robot.stop()
                 except:
                     pass
@@ -410,12 +424,15 @@ class PhotoBoothApp:
         cv2.destroyAllWindows()
         print("終了")
 
-    def _is_raspberry_pi(self) -> bool:
+    def _check_is_raspberry_pi(self) -> bool:
         try:
             with open("/proc/device-tree/model", "r") as f:
                 model = f.read().lower()
-            return "raspberry pi" in model
+            is_pi = "raspberry pi" in model
+            print(f"[DEBUG] check_is_raspberry_pi: {is_pi} (model: {model.strip()})")
+            return is_pi
         except FileNotFoundError:
+            print("[DEBUG] check_is_raspberry_pi: False (File not found)")
             return False
         
     def _shutter_flash(self, frame, t, duration=30):
