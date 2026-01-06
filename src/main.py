@@ -109,7 +109,8 @@ class PhotoBoothApp:
                 import gpiozero
                 print(f"[DEBUG] Using gpiozero pin factory: {gpiozero.Device.pin_factory}")
                 print("[DEBUG] Initializing Robot (GPIO 17,18,19,20)...")
-                self.robot = Robot(left=(17,18), right=(19,20))
+                # PWMを無効化して単純なON/OFF制御を試す（トラブルシューティング用）
+                self.robot = Robot(left=(17,18), right=(19,20), pwm=False)
                 
                 # 構成情報の詳細表示
                 print(f"[DEBUG] Robot Object: {self.robot}")
