@@ -4,12 +4,9 @@ import time
 import math
 from enum import Enum, auto
 from dataclasses import dataclass
-from ultralytics import YOLO # type: ignore
 
-from measure_distance import detect_person_distance2sideedge
-from detect_circle_gesture import detect_circle_gesture
+from detect_circle_gesture import CircleGestureDetector
 from profiler import profiler
-from model_loader import load_model
 
 # --- 設定値管理 ---
 @dataclass(frozen=True)
@@ -17,7 +14,7 @@ class Config:
     CAMERA_INDEX: int = 0
     MARGIN: int = 50
     MAX_PICTURE: int = 3
-    FPS: int = 5  # FPSを5に設定（処理負荷軽減のため）
+    FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
     RESOLUTION_HEIGHT: int = 480
     
@@ -58,7 +55,7 @@ class PhotoBoothApp:
         self.state = AppState.READY
         self.cap = None
         self.subtractor = None
-        self.pose_model = None
+        self.gesture_detector: CircleGestureDetector | None = None
         self.robot = None
         self.config = Config() # プロパティアクセス用
         
@@ -84,9 +81,9 @@ class PhotoBoothApp:
         """カメラとAIモデルの初期化"""
         print("--- システム初期化中 ---")
         
-        # YOLOモデルのロード
-        print("AIモデルをロード中...")
-        self.pose_model = load_model("yolo11n-pose", task="pose")
+        # MediaPipeジェスチャー検知器の初期化
+        print("MediaPipeモデルをロード中...")
+        self.gesture_detector = CircleGestureDetector()
 
         # カメラセットアップ
         self.cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
@@ -211,9 +208,10 @@ class PhotoBoothApp:
     def _handle_ready(self, frame):
         """READY: 丸ジェスチャーを待機"""
         # 5フレームに1回だけ推論
-        if self.state_timer % 5 == 0: 
+        if self.state_timer % 5 == 0 and self.gesture_detector: 
             with profiler.measure("detect_circle_gesture"):
-                self.last_frame_with_pose, self.last_gesture_detected = detect_circle_gesture(frame)
+                # MediaPipe detector call
+                self.last_frame_with_pose, self.last_gesture_detected = self.gesture_detector.detect(frame)
         
         # 描画結果を反映 (キャッシュから)
         # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
@@ -238,20 +236,15 @@ class PhotoBoothApp:
 
         try:
             # 距離・位置判定 (5フレームに1回)
-            if self.state_timer % 5 == 0:
-                # もし detect_person... が外部ファイルになくても止まらないようにtryで囲むのが安全です
-                with profiler.measure("detect_person_distance"):
-                    # 注意: detect_person_distance2sideedge は frame を直接変更して返す
-                    result = detect_person_distance2sideedge(frame.copy(), self.config.MARGIN)
-                
-                # 戻り値が正しく2つあるか確認してから代入
-                if result is not None and len(result) == 2:
-                    processed_frame_res, is_at_edge_res = result
+            if self.state_timer % 5 == 0 and self.gesture_detector:
+                with profiler.measure("detect_edge_proximity"):
+                    # Use the same gesture detector for edge detection (distance check)
+                    processed_frame_res, is_at_edge_res = self.gesture_detector.detect_edge_proximity(
+                        frame.copy(), self.config.MARGIN
+                    )
+                    
                     self.last_adjust_frame = processed_frame_res
                     self.last_is_at_edge = is_at_edge_res
-                else:
-                    # 失敗時は現在のフレームをキャッシュとして使う（描画なし）
-                    self.last_adjust_frame = frame.copy()
             
             # キャッシュを使用
             if self.last_adjust_frame is not None:
@@ -328,9 +321,9 @@ class PhotoBoothApp:
         else:
             # 3. ジェスチャー待ち
             # 5フレームに1回だけ推論
-            if self.state_timer % 5 == 0: 
+            if self.state_timer % 5 == 0 and self.gesture_detector: 
                 with profiler.measure("detect_circle_gesture"):
-                    self.last_frame_with_pose, self.last_gesture_detected = detect_circle_gesture(frame)
+                    self.last_frame_with_pose, self.last_gesture_detected = self.gesture_detector.detect(frame)
             
             # 描画結果を反映 (キャッシュから)
             # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
