@@ -33,3 +33,5 @@ torchvision==0.24.1
 typing_extensions==4.15.0
 urllib3==2.6.1
 gpiozero
+flask
+qrcode

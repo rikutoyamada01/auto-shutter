@@ -2,11 +2,15 @@ import cv2
 import sys
 import time
 import math
+import os
+import numpy as np
+from datetime import datetime
 from enum import Enum, auto
 from dataclasses import dataclass
 
 from detect_circle_gesture import CircleGestureDetector
 from profiler import profiler
+import simple_server_qr
 
 # --- 設定値管理 ---
 @dataclass(frozen=True)
@@ -23,7 +27,7 @@ class Config:
     COOLDOWN_DURATION_SEC: float = 2.0    # 撮影後のクールダウン
     COUNTDOWN_SEC: float = 3.0            # ジェスチャー検知から撮影までの秒数
     TAKE_PICTURE_TIMEOUT_SEC: float = 30.0 # 撮影待機が長すぎた場合のタイムアウト
-    RESULT_DURATION_SEC: float = 10.0     # 結果表示時間
+    RESULT_DURATION_SEC: float = 20.0     # 結果表示時間
     
     # フレーム数換算 (初期化時に計算)
     @property
@@ -76,6 +80,15 @@ class PhotoBoothApp:
         
         self.is_pi = self._check_is_raspberry_pi()
         print(f"[DEBUG] Device is Raspberry Pi: {self.is_pi}")
+
+        # QR Server & Photo Storage
+        self.captured_files = []
+        self.server_needs_update = False
+        self.qr_server_stop = None
+        self.qr_image_cv = None
+        self.qr_urls = []
+        self.output_dir = "captured_photos"
+        os.makedirs(self.output_dir, exist_ok=True)
 
     def initialize(self):
         """カメラとAIモデルの初期化"""
@@ -243,8 +256,14 @@ class PhotoBoothApp:
                         frame.copy(), self.config.MARGIN
                     )
                     
-                    self.last_adjust_frame = processed_frame_res
-                    self.last_is_at_edge = is_at_edge_res
+                    # Ensure the frame from MediaPipe is valid before using it
+                    if processed_frame_res is not None and isinstance(processed_frame_res, np.ndarray) and processed_frame_res.ndim >= 2:
+                        self.last_adjust_frame = processed_frame_res
+                        self.last_is_at_edge = is_at_edge_res
+                    else:
+                        print("Warning: Invalid frame received from MediaPipe detector_edge_proximity.")
+                        self.last_adjust_frame = None
+                        self.last_is_at_edge = False
             
             # キャッシュを使用
             if self.last_adjust_frame is not None:
@@ -343,6 +362,14 @@ class PhotoBoothApp:
         # シャッターエフェクト（画面を白くするなど）を入れると良い
         print("パシャッ！ (撮影)")
         
+        # Save image
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"photo_{timestamp}_{self.taken_pictures_count + 1}.jpg"
+        filepath = os.path.join(self.output_dir, filename)
+        cv2.imwrite(filepath, frame)
+        print(f"Saved: {filepath}")
+        self.captured_files.append(filepath)
+        
         self.taken_pictures_count += 1
         
         if self.taken_pictures_count >= self.config.MAX_PICTURE:
@@ -361,7 +388,60 @@ class PhotoBoothApp:
 
     def _handle_result(self, frame):
         """RESULT: QRコード表示など。時間経過でREADYへ"""
+        
+        # Start server if needed (update with new files)
+        if self.server_needs_update and self.captured_files:
+            # If server is already running, stop it first
+            if self.qr_server_stop:
+                print("Stopping previous QR Server...")
+                self.qr_server_stop()
+                self.qr_server_stop = None
+
+            print("Starting QR Server...")
+            try:
+                # Provide absolute paths to avoid directory issues
+                abs_files = [os.path.abspath(p) for p in self.captured_files]
+                qr_pil, urls, stop_func = simple_server_qr.serve_and_generate_qr(abs_files)
+                self.qr_server_stop = stop_func
+                self.qr_urls = urls
+                
+                # Convert PIL to OpenCV (RGB -> BGR)
+                # Ensure it's RGB first (qrcode often returns 1-bit '1' mode)
+                self.qr_image_cv = np.array(qr_pil.convert('RGB'))
+                self.qr_image_cv = cv2.cvtColor(self.qr_image_cv, cv2.COLOR_RGB2BGR)
+                print(f"Server started at {urls[0]}")
+            except Exception as e:
+                print(f"Failed to start QR server: {e}")
+            
+            self.server_needs_update = False
+
         self.state_timer += 1
+        
+        # Draw QR Code if available
+        if self.qr_image_cv is not None:
+            # Resize QR to fit nicely (e.g., 50% of screen height)
+            qr_h, qr_w = self.qr_image_cv.shape[:2]
+            target_h = int(frame.shape[0] * 0.5)
+            if qr_h > 0:
+                scale = target_h / qr_h
+                resized_qr = cv2.resize(self.qr_image_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+                
+                # Center overlay
+                rh, rw = resized_qr.shape[:2]
+                y_offset = (frame.shape[0] - rh) // 2
+                x_offset = (frame.shape[1] - rw) // 2
+                
+                # Check bounds
+                if y_offset >= 0 and x_offset >= 0 and y_offset+rh <= frame.shape[0] and x_offset+rw <= frame.shape[1]:
+                    frame[y_offset:y_offset+rh, x_offset:x_offset+rw] = resized_qr
+                
+                # Draw URL text above QR
+                if self.qr_urls:
+                    text = "Scan to Download!"
+                    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+                    text_x = (frame.shape[1] - tw) // 2
+                    cv2.putText(frame, text, (text_x, y_offset - 15), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         
         # ここにQRコード画像のオーバーレイ処理などを記述
         cv2.putText(frame, "ALL DONE!", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
@@ -377,6 +457,14 @@ class PhotoBoothApp:
     def _transition_to(self, new_state):
         print(f"Phase Change: {self.state.name} -> {new_state.name}")
         
+        if new_state == AppState.RESULT:
+            self.server_needs_update = True
+        
+        # Reset captured files for next session if leaving RESULT state
+        # The server will continue running with the old files until updated in _handle_result
+        if self.state == AppState.RESULT and new_state != AppState.RESULT:
+            self.captured_files = []
+
         # 状態遷移時にロボットを停止させる
         if self.robot:
             try:
@@ -414,6 +502,8 @@ class PhotoBoothApp:
 
     def _cleanup(self):
         print("後処理を実行します...")
+        if self.qr_server_stop:
+            self.qr_server_stop()
         if self.robot:
             try:
                 self.robot.stop()
