@@ -129,6 +129,10 @@ class CircleGestureDetector:
                     max_y = max(max_y, py)
 
             if has_visible_landmarks:
+                # Adjust min_y to account for head top (MediaPipe detects eyes/nose, not top of head)
+                head_padding = 50
+                min_y = max(0, min_y - head_padding)
+
                 edges = set()
                 # Check margins
                 if min_x < margin:
