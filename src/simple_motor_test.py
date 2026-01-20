@@ -16,25 +16,25 @@ def test_motors():
     print("--- Test Start ---")
     
     print("1. Forward (Left & Right Forward)")
-    robot.forward(0.5)
+    robot.forward(0.4)
     time.sleep(1)
     robot.stop()
     time.sleep(0.5)
 
     print("2. Backward (Left & Right Backward)")
-    robot.backward(0.5)
+    robot.backward(0.4)
     time.sleep(1)
     robot.stop()
     time.sleep(0.5)
     
     print("3. Left Motor Only (Forward)")
-    robot.left_motor.forward(0.5)
+    robot.left_motor.forward(0.4)
     time.sleep(1)
     robot.left_motor.stop()
     time.sleep(0.5)
 
     print("4. Right Motor Only (Forward)")
-    robot.right_motor.forward(0.5)
+    robot.right_motor.forward(0.4)
     time.sleep(1)
     robot.right_motor.stop()
     
