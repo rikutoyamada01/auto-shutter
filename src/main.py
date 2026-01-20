@@ -112,31 +112,30 @@ class PhotoBoothApp:
             else:
                 sys.exit(1)
 
-        # Raspberry Piならロボット（モーター）を初期化する
-        if self.is_pi:
-            try:
-                from gpiozero import Robot, Motor
-                import gpiozero
-                print(f"[DEBUG] Using gpiozero pin factory: {gpiozero.Device.pin_factory}")
-                print("[DEBUG] Initializing Robot (GPIO 17,18,19,20)...")
-                
-                # PWMを有効化(デフォルト)に戻し、速度制御できるようにする
-                # 引数を指定しなければデフォルトでpwm=Trueになります
-                self.robot = Robot(left=(17,18), right=(19,20))
-                
-                # 構成情報の詳細表示
-                print(f"[DEBUG] Robot Object: {self.robot}")
-                print(f"[DEBUG] Left Motor: {self.robot.left_motor}")
-                print(f"[DEBUG] Right Motor: {self.robot.right_motor}")
-                
-                # 接続テスト: 一瞬だけ動かしてみる(速度0.4)
-                print("[DEBUG] Performing Motor Self-Test (0.1s backward at speed 0.4)...")
-                self.robot.backward(speed=0.4) # type: ignore
-                time.sleep(0.1)
-                self.robot.stop()
-                print("[DEBUG] Motor Self-Test Complete.")
-            except Exception as e:
-                print(f"Warning: Motor initialization or test failed: {e}")
+        # Robot（モーター）を初期化する (gpiozeroが使える環境なら試みる)
+        try:
+            from gpiozero import Robot, Motor
+            import gpiozero
+            print(f"[DEBUG] Using gpiozero pin factory: {gpiozero.Device.pin_factory}")
+            print("[DEBUG] Initializing Robot (GPIO 17,18,19,20)...")
+            
+            # PWMを有効化(デフォルト)に戻し、速度制御できるようにする
+            self.robot = Robot(left=(17,18), right=(19,20))
+            
+            # 構成情報の詳細表示
+            print(f"[DEBUG] Robot Object: {self.robot}")
+            
+            # 接続テスト: 一瞬だけ動かしてみる
+            print("[DEBUG] Performing Motor Self-Test (0.1s backward at speed 0.4)...")
+            self.robot.backward(speed=0.4) # type: ignore
+            time.sleep(0.5)
+            self.robot.stop()
+            print("[DEBUG] Motor Self-Test Complete.")
+            
+        except ImportError:
+            print("Info: gpiozero module not found. Robot control disabled.")
+        except Exception as e:
+            print(f"Warning: Motor initialization or test failed: {e}")
 
             
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.RESOLUTION_WIDTH)
@@ -300,7 +299,7 @@ class PhotoBoothApp:
             msg = f"ADJUST: {', '.join(current_edges)}"
             cv2.putText(frame, msg, (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
 
-            if self.is_pi and self.robot:
+            if self.robot:
                 try:
                     if needs_backward:
                         print("[DEBUG] Robot BACKWARD (Speed: 0.4)")
@@ -327,7 +326,7 @@ class PhotoBoothApp:
                 except Exception as e:
                     print(f"Warning: Robot move failed: {e}")
         else:
-            if self.is_pi and self.robot:
+            if self.robot:
                 try:
                     # print("[DEBUG] Robot STOP")
                     self.robot.stop()
