@@ -17,7 +17,8 @@ from ui_overlay import UIOverlay
 @dataclass(frozen=True)
 class Config:
     CAMERA_INDEX: int = 0
-    MARGIN: int = 100 # User feedback: 75-100 is better
+    MARGIN: int = 100
+    MOTOR_SPEED: float = 0.2 # モーター速度
     MAX_PICTURE: int = 3
     FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
@@ -137,8 +138,8 @@ class PhotoBoothApp:
             print(f"[DEBUG] Robot Object: {self.robot}")
             
             # 接続テスト: 一瞬だけ動かしてみる
-            print("[DEBUG] Performing Motor Self-Test (0.1s backward at speed 0.4)...")
-            self.robot.backward(speed=0.4) # type: ignore
+            print(f"[DEBUG] Performing Motor Self-Test (0.1s backward at speed {self.config.MOTOR_SPEED})...")
+            self.robot.backward(speed=self.config.MOTOR_SPEED) # type: ignore
             time.sleep(0.5)
             self.robot.stop()
             print("[DEBUG] Motor Self-Test Complete.")
@@ -324,17 +325,17 @@ class PhotoBoothApp:
             if self.robot:
                 try:
                     if needs_backward:
-                        print("[DEBUG] Robot BACKWARD (Speed: 0.4)")
-                        self.robot.backward(speed=0.4)
+                        print(f"[DEBUG] Robot BACKWARD (Speed: {self.config.MOTOR_SPEED})")
+                        self.robot.backward(speed=self.config.MOTOR_SPEED)
                     elif is_right:
                         # Person is on RIGHT edge -> Turn RIGHT to center them.
-                        print("[DEBUG] Robot TURN RIGHT (Left Motor Forward)")
-                        self.robot.left_motor.forward(speed=0.4)
+                        print(f"[DEBUG] Robot TURN RIGHT (Left Motor Forward)")
+                        self.robot.left_motor.forward(speed=self.config.MOTOR_SPEED)
                         self.robot.right_motor.stop()
                     elif is_left:
                         # Person is on LEFT edge -> Turn LEFT to center them.
-                        print("[DEBUG] Robot TURN LEFT (Right Motor Forward)")
-                        self.robot.right_motor.forward(speed=0.4)
+                        print(f"[DEBUG] Robot TURN LEFT (Right Motor Forward)")
+                        self.robot.right_motor.forward(speed=self.config.MOTOR_SPEED)
                         self.robot.left_motor.stop()
                     elif is_far:
                         # APPROACH: Only if NO other edge warnings (Top, Left, Right)
@@ -342,8 +343,8 @@ class PhotoBoothApp:
                         # we would have taken those branches.
                         # note: needs_backward covers TOP.
                         # So simply "elif is_far:" is sufficient to ensure priority.
-                        print("[DEBUG] Robot FORWARD (Speed: 0.4)")
-                        self.robot.forward(speed=0.4)
+                        print(f"[DEBUG] Robot FORWARD (Speed: {self.config.MOTOR_SPEED})")
+                        self.robot.forward(speed=self.config.MOTOR_SPEED)
                         
                 except Exception as e:
                     print(f"Warning: Robot move failed: {e}")
