@@ -130,12 +130,30 @@ class CircleGestureDetector:
                     max_y = max(max_y, py)
 
             if has_visible_landmarks:
-                # Check margin
-                if min_x < margin or max_x > (w - margin):
+                edges = set()
+                # Check margins
+                if min_x < margin:
+                    edges.add("LEFT")
+                if max_x > (w - margin):
+                    edges.add("RIGHT")
+                if min_y < margin:
+                    edges.add("TOP")
+                
+                # Check for "FAR" (Approach logic)
+                # Calculate bounding box width ratio
+                box_width = max_x - min_x
+                if box_width > 0:
+                    width_ratio = box_width / w
+                    # Threshold: if person takes up less than 30% of screen width, they are too far.
+                    if width_ratio < 0.3:
+                         edges.add("FAR")
+
+                if edges:
                     is_at_edge = True
                     color = (0, 0, 255) # Red
-                    label = "TOO CLOSE!"
+                    label = f"STATUS: {', '.join(edges)}"
                 else:
+                    is_at_edge = False
                     color = (0, 255, 0) # Green
                     label = "OK"
 
@@ -143,12 +161,23 @@ class CircleGestureDetector:
                 cv2.rectangle(draw_frame, (min_x, min_y), (max_x, max_y), color, 2)
                 cv2.putText(draw_frame, label, (min_x, min_y - 10), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            else:
+                 # No landmarks visible
+                 edges = set()
+                 is_at_edge = False
+
+        else:
+             edges = set()
+             is_at_edge = False
 
         # Draw margin lines
         cv2.line(draw_frame, (margin, 0), (margin, h), (200, 200, 200), 1)
         cv2.line(draw_frame, (w - margin, 0), (w - margin, h), (200, 200, 200), 1)
+        
+        # Draw Top Margin line for visual feedback
+        cv2.line(draw_frame, (0, margin), (w, margin), (200, 200, 200), 1)
 
-        return draw_frame, is_at_edge
+        return draw_frame, edges
 
 # --- Test Main ---
 if __name__ == "__main__":

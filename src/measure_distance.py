@@ -31,12 +31,21 @@ def detect_person_distance2sideedge_demo():
 
             # 3. エッジ検出の実行
             # detect_circle_gesture.py に実装されたメソッドを再利用
-            annotated_frame, is_at_edge = detector.detect_edge_proximity(frame, margin)
+            annotated_frame, edges = detector.detect_edge_proximity(frame, margin)
             
             # 結果表示
-            if is_at_edge:
-                cv2.putText(annotated_frame, "Status: AT EDGE", (10, 60), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            if edges:
+                # "FAR" is not "TOO CLOSE", so let's change the message prefix based on content
+                if "FAR" in edges and len(edges) == 1:
+                     prefix = "TOO FAR"
+                     color = (255, 0, 0) # Blue-ish for Far?
+                else:
+                     prefix = "TOO CLOSE"
+                     color = (0, 0, 255) # Red for Close
+                
+                msg = f"{prefix}: {', '.join(edges)}"
+                cv2.putText(annotated_frame, msg, (10, 60), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
             else:
                 cv2.putText(annotated_frame, "Status: OK", (10, 60), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)

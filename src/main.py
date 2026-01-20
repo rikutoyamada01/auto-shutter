@@ -243,7 +243,7 @@ class PhotoBoothApp:
     def _handle_adjust(self, frame):
         """ADJUST: 位置調整"""
         # 距離・位置判定
-        is_at_edge = False
+        current_edges = set()
         processed_frame = frame 
         # ---------------------------------------------
 
@@ -252,48 +252,84 @@ class PhotoBoothApp:
             if self.state_timer % 5 == 0 and self.gesture_detector:
                 with profiler.measure("detect_edge_proximity"):
                     # Use the same gesture detector for edge detection (distance check)
-                    processed_frame_res, is_at_edge_res = self.gesture_detector.detect_edge_proximity(
+                    processed_frame_res, edges_res = self.gesture_detector.detect_edge_proximity(
                         frame.copy(), self.config.MARGIN
                     )
                     
                     # Ensure the frame from MediaPipe is valid before using it
                     if processed_frame_res is not None and isinstance(processed_frame_res, np.ndarray) and processed_frame_res.ndim >= 2:
                         self.last_adjust_frame = processed_frame_res
-                        self.last_is_at_edge = is_at_edge_res
+                        self.last_is_at_edge = edges_res # actually a set now
                     else:
                         print("Warning: Invalid frame received from MediaPipe detector_edge_proximity.")
                         self.last_adjust_frame = None
-                        self.last_is_at_edge = False
+                        self.last_is_at_edge = set()
             
             # キャッシュを使用
             if self.last_adjust_frame is not None:
                 processed_frame = self.last_adjust_frame
-                is_at_edge = self.last_is_at_edge
+                current_edges = self.last_is_at_edge
             else:
                 # 初回などキャッシュがない場合
                 processed_frame = frame
-                is_at_edge = False
+                current_edges = set()
 
         except Exception as e:
             print(f"Warning: Distance detection skipped due to error: {e}")
             processed_frame = frame
-            is_at_edge = False
+            current_edges = set()
 
         frame[:] = processed_frame[:] # 描画反映
         
-        if is_at_edge:
-            cv2.putText(frame, "TOO CLOSE TO EDGE!", (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+        # Logic:
+        # 1. Top or (Right and Left) -> Backward
+        # 2. Right only -> Turn Right (Left Wheel Forward)
+        # 3. Left only -> Turn Left (Right Wheel Forward)
+        
+        is_top = "TOP" in current_edges
+        is_left = "LEFT" in current_edges
+        is_right = "RIGHT" in current_edges
+        is_far = "FAR" in current_edges
+        
+        # Priority: Edge (Safety/Framing) > Approach (Too Far)
+        # needs_backward: Top or (Left AND Right)
+        needs_backward = is_top or (is_left and is_right)
+        
+        if current_edges:
+            # Visual Feedback
+            msg = f"ADJUST: {', '.join(current_edges)}"
+            cv2.putText(frame, msg, (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+
             if self.is_pi and self.robot:
-                # 後退する(ロボット制御)
                 try:
-                    print("[DEBUG] Robot BACKWARD (Speed: 0.4)")
-                    self.robot.backward(speed=0.4) # type: ignore
+                    if needs_backward:
+                        print("[DEBUG] Robot BACKWARD (Speed: 0.4)")
+                        self.robot.backward(speed=0.4)
+                    elif is_right:
+                        # Person is on RIGHT edge -> Turn RIGHT to center them.
+                        print("[DEBUG] Robot TURN RIGHT (Left Motor Forward)")
+                        self.robot.left_motor.forward(speed=0.4)
+                        self.robot.right_motor.stop()
+                    elif is_left:
+                        # Person is on LEFT edge -> Turn LEFT to center them.
+                        print("[DEBUG] Robot TURN LEFT (Right Motor Forward)")
+                        self.robot.right_motor.forward(speed=0.4)
+                        self.robot.left_motor.stop()
+                    elif is_far:
+                        # APPROACH: Only if NO other edge warnings (Top, Left, Right)
+                        # The "elif" structure here guarantees that if is_right or is_left were true,
+                        # we would have taken those branches.
+                        # note: needs_backward covers TOP.
+                        # So simply "elif is_far:" is sufficient to ensure priority.
+                        print("[DEBUG] Robot FORWARD (Speed: 0.4)")
+                        self.robot.forward(speed=0.4)
+                        
                 except Exception as e:
-                    print(f"Warning: Robot is not moving backward: {e}")
+                    print(f"Warning: Robot move failed: {e}")
         else:
             if self.is_pi and self.robot:
                 try:
-                    # print("[DEBUG] Robot STOP") # ログ過多防止のためコメントアウト。必要なら解除
+                    # print("[DEBUG] Robot STOP")
                     self.robot.stop()
                 except:
                     pass
