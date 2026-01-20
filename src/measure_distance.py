@@ -31,7 +31,7 @@ def detect_person_distance2sideedge_demo():
 
             # 3. エッジ検出の実行
             # detect_circle_gesture.py に実装されたメソッドを再利用
-            annotated_frame, edges = detector.detect_edge_proximity(frame, margin)
+            annotated_frame, edges, bbox = detector.detect_edge_proximity(frame, margin)
             
             # 結果表示
             if edges:

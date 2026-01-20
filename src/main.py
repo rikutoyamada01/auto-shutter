@@ -18,7 +18,7 @@ from ui_overlay import UIOverlay
 class Config:
     CAMERA_INDEX: int = 0
     MARGIN: int = 100
-    MOTOR_SPEED: float = 0.4 # モーター速度 (0.2だと動かない場合があるため0.4へ変更)
+    MOTOR_SPEED: float = 0.3 # モーター速度 (0.2だと動かない場合があるため)
     MAX_PICTURE: int = 3
     FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
@@ -98,6 +98,14 @@ class PhotoBoothApp:
         self.ui_main_text = ""
         self.ui_sub_text = ""
         self.ui_center_text = ""
+        
+        # Tracking Log
+        self.tracking_log_file = "tracking_log.csv"
+        if not os.path.exists(self.tracking_log_file):
+            with open(self.tracking_log_file, "w") as f:
+                f.write("timestamp,center_error,frame_width\n")
+        
+        self.last_bbox = None
         self.ui_center_color = (0, 255, 0) # Default Green
         self.ui_progress = None
         self.ui_qr_image = None
@@ -271,7 +279,7 @@ class PhotoBoothApp:
             if self.state_timer % 5 == 0 and self.gesture_detector:
                 with profiler.measure("detect_edge_proximity"):
                     # Use the same gesture detector for edge detection (distance check)
-                    processed_frame_res, edges_res = self.gesture_detector.detect_edge_proximity(
+                    processed_frame_res, edges_res, bbox_res = self.gesture_detector.detect_edge_proximity(
                         frame.copy(), self.config.MARGIN
                     )
                     
@@ -279,10 +287,12 @@ class PhotoBoothApp:
                     if processed_frame_res is not None and isinstance(processed_frame_res, np.ndarray) and processed_frame_res.ndim >= 2:
                         self.last_adjust_frame = processed_frame_res
                         self.last_is_at_edge = edges_res # actually a set now
+                        self.last_bbox = bbox_res
                     else:
                         print("Warning: Invalid frame received from MediaPipe detector_edge_proximity.")
                         self.last_adjust_frame = None
                         self.last_is_at_edge = set()
+                        self.last_bbox = None
             
             # キャッシュを使用
             if self.last_adjust_frame is not None:
@@ -367,6 +377,21 @@ class PhotoBoothApp:
              self.ui_main_text = "Adjusting..."
 
         if self.state_timer > self.config.ADJUST_FRAMES:
+            # Log Tracking Accuracy
+            if self.last_bbox:
+                min_x, max_x, _, _ = self.last_bbox
+                frame_center = self.config.RESOLUTION_WIDTH / 2
+                bbox_center = (min_x + max_x) / 2
+                error = abs(bbox_center - frame_center)
+                
+                try:
+                    with open(self.tracking_log_file, "a") as f:
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        f.write(f"{timestamp},{error:.2f},{self.config.RESOLUTION_WIDTH}\n")
+                        print(f"[LOG] Tracking Error: {error:.2f}px")
+                except Exception as e:
+                    print(f"Warning: Failed to log tracking error: {e}")
+
             self._transition_to(AppState.TAKE_PICTURE)
 
     def _handle_take_picture(self, frame):

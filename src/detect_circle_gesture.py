@@ -176,7 +176,7 @@ class CircleGestureDetector:
         # Draw Top Margin line for visual feedback
         cv2.line(draw_frame, (0, margin), (w, margin), (200, 200, 200), 1)
 
-        return draw_frame, edges
+        return draw_frame, edges, (min_x, max_x, min_y, max_y) if has_visible_landmarks else None
 
 # --- Test Main ---
 if __name__ == "__main__":
