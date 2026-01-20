@@ -18,7 +18,7 @@ from ui_overlay import UIOverlay
 class Config:
     CAMERA_INDEX: int = 0
     MARGIN: int = 100
-    MOTOR_SPEED: float = 0.3 # モーター速度 (0.2だと動かない場合があるため)
+    MOTOR_SPEED: float = 0.4 # モーター速度 (0.2だと動かない場合があるため)
     MAX_PICTURE: int = 3
     FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
@@ -80,6 +80,10 @@ class PhotoBoothApp:
         self.last_adjust_frame = None
         self.last_is_at_edge = False
         
+        # Camera State
+        self.read_failures = 0
+        self.MAX_READ_FAILURES = 5
+        
         self.is_pi = self._check_is_raspberry_pi()
         print(f"[DEBUG] Device is Raspberry Pi: {self.is_pi}")
 
@@ -119,18 +123,27 @@ class PhotoBoothApp:
         self.gesture_detector = CircleGestureDetector()
 
         # カメラセットアップ
-        self.cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
+        self.cap = self._setup_camera()
 
-        if not self.cap.isOpened():
-            print(f"エラー: カメラ(インデックス: {self.config.CAMERA_INDEX})を開けませんでした。")
-            # もしRaspberry Piなら、取り付けてあるカメラを使い、モーターを動かす。
+    def _setup_camera(self):
+        """カメラの初期化と設定"""
+        print(f"Connecting to Camera (Index: {self.config.CAMERA_INDEX})...")
+        cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
+
+        if not cap.isOpened():
+            print(f"Error: Could not open camera (Index: {self.config.CAMERA_INDEX}).")
             if self.is_pi:
-                print("Raspberry Piなので指定のカメラを使います")
-                success = self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V")) # type: ignore カメラの機種によって変える
-                if success == False:
-                    sys.exit(1)
-            else:
-                sys.exit(1)
+                # Raspberry Pi fallback logic if needed, or just fail
+                pass
+            return cap # Return even if not opened, to be handled by caller if needed, or loop will retry
+
+        if self.is_pi:
+            print("Raspberry Pi detected: Setting YUYV format.")
+            success = cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V"))
+            if not success:
+                print("Warning: Failed to set YUYV format.")
+        
+        return cap
 
         # Robot（モーター）を初期化する (gpiozeroが使える環境なら試みる)
         try:
@@ -185,9 +198,25 @@ class PhotoBoothApp:
 
                 with profiler.measure("cap_read"):
                     ret, frame = self.read_latest(self.cap)
+                
                 if not ret:
-                    print("フレームの読み込みに失敗")
+                    self.read_failures += 1
+                    print(f"Warning: Failed to read frame ({self.read_failures}/{self.MAX_READ_FAILURES})")
+                    time.sleep(0.5)
+                    
+                    if self.read_failures >= self.MAX_READ_FAILURES:
+                        print("Error: Max read failures reached. Attempting to reconnect camera...")
+                        if self.cap:
+                            self.cap.release()
+                        
+                        # Re-initialize
+                        self.cap = self._setup_camera()
+                        self.read_failures = 0
+                        time.sleep(1.0) # Wait for camera to come up
                     continue
+                
+                # Success
+                self.read_failures = 0
 
                 # 鏡のように左右反転（UX向上のため）
                 with profiler.measure("cv2_flip"):
