@@ -123,27 +123,8 @@ class PhotoBoothApp:
         self.gesture_detector = CircleGestureDetector()
 
         # カメラセットアップ
+        # カメラセットアップ
         self.cap = self._setup_camera()
-
-    def _setup_camera(self):
-        """カメラの初期化と設定"""
-        print(f"Connecting to Camera (Index: {self.config.CAMERA_INDEX})...")
-        cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
-
-        if not cap.isOpened():
-            print(f"Error: Could not open camera (Index: {self.config.CAMERA_INDEX}).")
-            if self.is_pi:
-                # Raspberry Pi fallback logic if needed, or just fail
-                pass
-            return cap # Return even if not opened, to be handled by caller if needed, or loop will retry
-
-        if self.is_pi:
-            print("Raspberry Pi detected: Setting YUYV format.")
-            success = cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V"))
-            if not success:
-                print("Warning: Failed to set YUYV format.")
-        
-        return cap
 
         # Robot（モーター）を初期化する (gpiozeroが使える環境なら試みる)
         try:
@@ -170,13 +151,34 @@ class PhotoBoothApp:
         except Exception as e:
             print(f"Warning: Motor initialization or test failed: {e}")
 
-            
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.RESOLUTION_WIDTH)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.RESOLUTION_HEIGHT)
-        self.cap.set(cv2.CAP_PROP_FPS, self.config.FPS)
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # 自動露出OFF (環境による)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, self.config.EXPOSURE_VAL)
+    def _setup_camera(self):
+        """カメラの初期化と設定"""
+        print(f"Connecting to Camera (Index: {self.config.CAMERA_INDEX})...")
+        cap = cv2.VideoCapture(self.config.CAMERA_INDEX)
+
+        if not cap.isOpened():
+            print(f"Error: Could not open camera (Index: {self.config.CAMERA_INDEX}).")
+            if self.is_pi:
+                # Raspberry Pi fallback logic if needed, or just fail
+                pass
+            return cap # Return even if not opened, to be handled by caller if needed, or loop will retry
+
+        if self.is_pi:
+            print("Raspberry Pi detected: Setting YUYV format.")
+            success = cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Y", "U", "Y", "V"))
+            if not success:
+                print("Warning: Failed to set YUYV format.")
+        
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.RESOLUTION_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.RESOLUTION_HEIGHT)
+        cap.set(cv2.CAP_PROP_FPS, self.config.FPS)
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1) # 自動露出OFF (環境による)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        cap.set(cv2.CAP_PROP_EXPOSURE, self.config.EXPOSURE_VAL)
+
+        return cap
+
+
 
         # 背景差分の初期化
 
