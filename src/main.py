@@ -18,7 +18,7 @@ from ui_overlay import UIOverlay
 class Config:
     CAMERA_INDEX: int = 0
     MARGIN: int = 100
-    MOTOR_SPEED: float = 0.2 # モーター速度
+    MOTOR_SPEED: float = 0.4 # モーター速度 (0.2だと動かない場合があるため0.4へ変更)
     MAX_PICTURE: int = 3
     FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
