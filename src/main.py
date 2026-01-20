@@ -11,12 +11,13 @@ from dataclasses import dataclass
 from detect_circle_gesture import CircleGestureDetector
 from profiler import profiler
 import simple_server_qr
+from ui_overlay import UIOverlay
 
 # --- 設定値管理 ---
 @dataclass(frozen=True)
 class Config:
     CAMERA_INDEX: int = 0
-    MARGIN: int = 50
+    MARGIN: int = 100 # User feedback: 75-100 is better
     MAX_PICTURE: int = 3
     FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
@@ -89,6 +90,16 @@ class PhotoBoothApp:
         self.qr_urls = []
         self.output_dir = "captured_photos"
         os.makedirs(self.output_dir, exist_ok=True)
+
+        # UI Overlay & State
+        self.overlay = UIOverlay()
+        self.ui_status_text = ""
+        self.ui_main_text = ""
+        self.ui_sub_text = ""
+        self.ui_center_text = ""
+        self.ui_center_color = (0, 255, 0) # Default Green
+        self.ui_progress = None
+        self.ui_qr_image = None
 
     def initialize(self):
         """カメラとAIモデルの初期化"""
@@ -175,6 +186,14 @@ class PhotoBoothApp:
 
                 # 現在の状態に応じた処理を実行
                 # process_state内でframeに描画(上書き)を行う
+                # Reset UI State
+                self.ui_status_text = ""
+                self.ui_main_text = ""
+                self.ui_sub_text = ""
+                self.ui_center_text = ""
+                self.ui_progress = None
+                self.ui_qr_image = None
+                
                 with profiler.measure(f"process_state_{self.state.name}"):
                     self._process_state(frame)
 
@@ -230,12 +249,12 @@ class PhotoBoothApp:
         frame[:] = self.last_frame_with_pose if self.last_frame_with_pose is not None else frame.copy()
 
         if self.last_gesture_detected:
-            cv2.putText(frame, "STARTING!", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
+            self.ui_center_text = "STARTING!"
             # 即時遷移せず、少しユーザーにフィードバックを見せたい場合はここで少し待つ処理を入れても良い
             # 今回は即座に遷移
             self._transition_to(AppState.ADJUST)
         else:
-            cv2.putText(frame, "Make a Circle to Start", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+            self.ui_main_text = "Make a Circle to Start"
         
         self.state_timer += 1
 
@@ -293,11 +312,14 @@ class PhotoBoothApp:
         # Priority: Edge (Safety/Framing) > Approach (Too Far)
         # needs_backward: Top or (Left AND Right)
         needs_backward = is_top or (is_left and is_right)
-        
         if current_edges:
             # Visual Feedback
-            msg = f"ADJUST: {', '.join(current_edges)}"
-            cv2.putText(frame, msg, (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+            warnings = [e for e in current_edges if e in ["TOP", "LEFT", "RIGHT"]]
+            if warnings:
+                self.ui_center_text = f"TOO CLOSE: {', '.join(warnings)}"
+                self.ui_center_color = (0, 0, 255) # Red
+            elif is_far:
+                 self.ui_main_text = "Coming Closer..."
 
             if self.robot:
                 try:
@@ -338,12 +360,10 @@ class PhotoBoothApp:
         self.state_timer += 1
         
         # プログレスバー風表示 (Result画面に合わせて下部に全幅で表示)
-        h, w = frame.shape[:2]
-        progress = self.state_timer / self.config.ADJUST_FRAMES
-        # 下部20pxのバー
-        cv2.rectangle(frame, (0, h-20), (int(w * progress), h), (0, 255, 0), -1)
+        self.ui_progress = self.state_timer / self.config.ADJUST_FRAMES
         
-        cv2.putText(frame, "Adjusting...", (50, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        if not current_edges:
+             self.ui_main_text = "Adjusting..."
 
         if self.state_timer > self.config.ADJUST_FRAMES:
             self._transition_to(AppState.TAKE_PICTURE)
@@ -353,6 +373,11 @@ class PhotoBoothApp:
         
         # 1. タイムアウト処理 (操作がない場合、READYに戻る)
         self.state_timer += 1
+        
+        # Timeout Progress Bar
+        if not self.is_counting_down:
+            self.ui_progress = 1.0 - (self.state_timer / self.config.TAKE_PICTURE_TIMEOUT_FRAMES)
+
         if self.state_timer > self.config.TAKE_PICTURE_TIMEOUT_FRAMES and not self.is_counting_down:
             print("タイムアウト: 操作がありませんでした。")
             self._transition_to(AppState.READY)
@@ -366,9 +391,7 @@ class PhotoBoothApp:
             remaining_sec = math.ceil(self.countdown_timer / self.config.FPS)
             
             # 画面中央に大きくカウントダウン表示
-            h, w = frame.shape[:2]
-            cv2.putText(frame, str(remaining_sec), (w//2 - 50, h//2), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 255, 255), 10)
+            self.ui_center_text = str(remaining_sec)
             
             if self.countdown_timer <= 0:
                 self._perform_capture(frame)
@@ -383,9 +406,8 @@ class PhotoBoothApp:
             # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
             frame[:] = self.last_frame_with_pose if self.last_frame_with_pose is not None else frame.copy()
             
-            cv2.putText(frame, f"Pose for Picture! ({self.taken_pictures_count + 1}/{self.config.MAX_PICTURE})", 
-                        (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
-            cv2.putText(frame, "Make Circle to Snap", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+            self.ui_main_text = f"Pose for Picture! ({self.taken_pictures_count + 1}/{self.config.MAX_PICTURE})"
+            self.ui_sub_text = "Make Circle to Snap"
 
             if self.last_gesture_detected:
                 print("撮影ジェスチャー検知: カウントダウン開始")
@@ -416,7 +438,7 @@ class PhotoBoothApp:
         """PICTURE_COOLDOWN: 連続撮影防止と確認用"""
         self.state_timer += 1
         self._shutter_flash(frame, self.state_timer)
-        cv2.putText(frame, "Nice Shot!", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 255), 3)
+        self.ui_center_text = "Nice Shot!"
         
         if self.state_timer > self.config.COOLDOWN_FRAMES:
             self._transition_to(AppState.TAKE_PICTURE)
@@ -454,37 +476,19 @@ class PhotoBoothApp:
         
         # Draw QR Code if available
         if self.qr_image_cv is not None:
-            # Resize QR to fit nicely (e.g., 50% of screen height)
-            qr_h, qr_w = self.qr_image_cv.shape[:2]
-            target_h = int(frame.shape[0] * 0.5)
-            if qr_h > 0:
-                scale = target_h / qr_h
-                resized_qr = cv2.resize(self.qr_image_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-                
-                # Center overlay
-                rh, rw = resized_qr.shape[:2]
-                y_offset = (frame.shape[0] - rh) // 2
-                x_offset = (frame.shape[1] - rw) // 2
-                
-                # Check bounds
-                if y_offset >= 0 and x_offset >= 0 and y_offset+rh <= frame.shape[0] and x_offset+rw <= frame.shape[1]:
-                    frame[y_offset:y_offset+rh, x_offset:x_offset+rw] = resized_qr
-                
-                # Draw URL text above QR
-                if self.qr_urls:
-                    text = "Scan to Download!"
-                    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
-                    text_x = (frame.shape[1] - tw) // 2
-                    cv2.putText(frame, text, (text_x, y_offset - 15), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        
-        # ここにQRコード画像のオーバーレイ処理などを記述
-        cv2.putText(frame, "ALL DONE!", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-        cv2.putText(frame, "Thank you for using.", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+             self.ui_qr_image = self.qr_image_cv
+             if self.qr_urls:
+                 self.ui_sub_text = self.qr_urls[0]
+             
+             # Avoid overlap with QR code
+             self.ui_center_text = None
+             self.ui_main_text = "ALL DONE! Thank you."
+        else:
+             self.ui_center_text = "ALL DONE!"
+             self.ui_main_text = "Thank you for using."
         
         # 残り時間のバー
-        remaining_ratio = 1.0 - (self.state_timer / self.config.RESULT_FRAMES)
-        cv2.rectangle(frame, (0, frame.shape[0]-20), (int(frame.shape[1] * remaining_ratio), frame.shape[0]), (0, 100, 255), -1)
+        self.ui_progress = 1.0 - (self.state_timer / self.config.RESULT_FRAMES)
 
         if self.state_timer > self.config.RESULT_FRAMES:
             self._transition_to(AppState.READY)
@@ -521,16 +525,36 @@ class PhotoBoothApp:
         
         if new_state == AppState.READY:
              self.taken_pictures_count = 0
+             
+        # UIステートのリセット
+        self.ui_center_text = ""
+        self.ui_center_color = (0, 255, 0)
+        self.ui_main_text = ""
+        self.ui_sub_text = ""
+        self.ui_status_text = ""
+        self.ui_progress = None
 
     def _draw_ui(self, frame):
-        cv2.putText(frame, f"Phase: {self.state.name}", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # 1. Header
+        # Phase (Left) + Timeout/Status (Right)
         
-        # タイムアウトまでの残り時間表示 (TAKE_PICTUREのみ)
+        # Override status for Timeout if applicable
         if self.state == AppState.TAKE_PICTURE and not self.is_counting_down:
-            remaining = int((self.config.TAKE_PICTURE_TIMEOUT_FRAMES - self.state_timer) / self.config.FPS)
-            cv2.putText(frame, f"Timeout: {remaining}s", (frame.shape[1]-200, 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+             remaining = int((self.config.TAKE_PICTURE_TIMEOUT_FRAMES - self.state_timer) / self.config.FPS)
+             self.ui_status_text = f"Timeout: {remaining}s"
+
+        self.overlay.draw_header(frame, f"PHASE: {self.state.name}", self.ui_status_text)
+
+        # 2. Footer
+        self.overlay.draw_footer(frame, self.ui_main_text, self.ui_sub_text, self.ui_progress)
+
+        # 3. Center Status
+        if self.ui_center_text:
+            self.overlay.draw_center_status(frame, self.ui_center_text, color=self.ui_center_color)
+            
+        # 4. QR Code (Special Case)
+        if self.state == AppState.RESULT and self.ui_qr_image is not None:
+             self.overlay.draw_qr_result(frame, self.ui_qr_image)
 
     def _handle_input(self) -> bool:
         return True # waitKeyはrunメソッド内で処理済みなのでここは常にTrue

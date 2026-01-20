@@ -91,8 +91,7 @@ class CircleGestureDetector:
 
                 if cond_wrists_above_elbows and cond_elbows_above_shoulders and cond_wrists_close:
                     detected_flag = True
-                    cv2.putText(draw_frame, "MARU (CIRCLE) DETECTED!", (50, 100), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+
                     cv2.line(draw_frame, lw_px, rw_px, (0, 0, 255), 4)
 
         return draw_frame, detected_flag
@@ -151,16 +150,12 @@ class CircleGestureDetector:
                 if edges:
                     is_at_edge = True
                     color = (0, 0, 255) # Red
-                    label = f"STATUS: {', '.join(edges)}"
                 else:
                     is_at_edge = False
                     color = (0, 255, 0) # Green
-                    label = "OK"
 
                 # Draw bounding box
                 cv2.rectangle(draw_frame, (min_x, min_y), (max_x, max_y), color, 2)
-                cv2.putText(draw_frame, label, (min_x, min_y - 10), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             else:
                  # No landmarks visible
                  edges = set()
