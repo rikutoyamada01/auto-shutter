@@ -17,8 +17,8 @@ from ui_overlay import UIOverlay
 @dataclass(frozen=True)
 class Config:
     CAMERA_INDEX: int = 0
-    MARGIN: int = 100
-    MOTOR_SPEED: float = 0.4 # モーター速度
+    MARGIN: int = 80
+    MOTOR_SPEED: float = 0.3 # モーター速度 (0.2では動かない)
     MAX_PICTURE: int = 3
     FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
@@ -29,6 +29,7 @@ class Config:
     COOLDOWN_DURATION_SEC: float = 2.0    # 撮影後のクールダウン
     COUNTDOWN_SEC: float = 3.0            # ジェスチャー検知から撮影までの秒数
     TAKE_PICTURE_TIMEOUT_SEC: float = 30.0 # 撮影待機が長すぎた場合のタイムアウト
+    PRE_ADJUST_DURATION_SEC: float = 2.0  # ADJUST開始前の待機時間
     RESULT_DURATION_SEC: float = 20.0     # 結果表示時間
     
     # フレーム数換算 (初期化時に計算)
@@ -41,6 +42,8 @@ class Config:
     @property
     def TAKE_PICTURE_TIMEOUT_FRAMES(self): return int(self.TAKE_PICTURE_TIMEOUT_SEC * self.FPS)
     @property
+    def PRE_ADJUST_FRAMES(self): return int(self.PRE_ADJUST_DURATION_SEC * self.FPS)
+    @property
     def RESULT_FRAMES(self): return int(self.RESULT_DURATION_SEC * self.FPS)
     
     # カメラ設定
@@ -51,6 +54,7 @@ class Config:
 # --- 状態定義 ---
 class AppState(Enum):
     READY = auto()
+    PRE_ADJUST = auto()
     ADJUST = auto()
     TAKE_PICTURE = auto()
     PICTURE_COOLDOWN = auto()
@@ -265,6 +269,8 @@ class PhotoBoothApp:
         """状態ごとのロジック分岐"""
         if self.state == AppState.READY:
             self._handle_ready(frame)
+        elif self.state == AppState.PRE_ADJUST:
+             self._handle_pre_adjust(frame)
         elif self.state == AppState.ADJUST:
             self._handle_adjust(frame)
         elif self.state == AppState.TAKE_PICTURE:
@@ -289,14 +295,24 @@ class PhotoBoothApp:
         frame[:] = self.last_frame_with_pose if self.last_frame_with_pose is not None else frame.copy()
 
         if self.last_gesture_detected:
-            self.ui_center_text = "STARTING!"
-            # 即時遷移せず、少しユーザーにフィードバックを見せたい場合はここで少し待つ処理を入れても良い
-            # 今回は即座に遷移
-            self._transition_to(AppState.ADJUST)
+            self.ui_center_text = "開始します！"
+            self._transition_to(AppState.PRE_ADJUST)
         else:
-            self.ui_main_text = "Make a Circle to Start"
+            self.ui_main_text = "「マル」を作ってスタート"
         
         self.state_timer += 1
+
+    def _handle_pre_adjust(self, frame):
+        """PRE_ADJUST: ジェスチャー検知後、Adjust開始までの待機 (手を下ろす猶予)"""
+        self.state_timer += 1
+        
+        # 描画はREADYの最後のフレーム(結果表示)を維持するか、あるいはカメラ映像そのままでも良い
+        # ここでは普通にカメラ映像を表示しつつ、カウントダウン的なテキストを出す
+        self.ui_center_text = "手を下ろしてください"
+        self.ui_progress = self.state_timer / self.config.PRE_ADJUST_FRAMES
+        
+        if self.state_timer > self.config.PRE_ADJUST_FRAMES:
+             self._transition_to(AppState.ADJUST)
 
     def _handle_adjust(self, frame):
         """ADJUST: 位置調整"""
@@ -358,10 +374,16 @@ class PhotoBoothApp:
             # Visual Feedback
             warnings = [e for e in current_edges if e in ["TOP", "LEFT", "RIGHT"]]
             if warnings:
-                self.ui_center_text = f"TOO CLOSE: {', '.join(warnings)}"
+                # Japanese translation for edges
+                jp_warnings = []
+                if "TOP" in warnings: jp_warnings.append("上")
+                if "LEFT" in warnings: jp_warnings.append("左")
+                if "RIGHT" in warnings: jp_warnings.append("右")
+                
+                self.ui_center_text = f"近すぎます: {', '.join(jp_warnings)}"
                 self.ui_center_color = (0, 0, 255) # Red
             elif is_far:
-                 self.ui_main_text = "Coming Closer..."
+                 self.ui_main_text = "近づいています..."
 
             if self.robot:
                 try:
@@ -405,7 +427,7 @@ class PhotoBoothApp:
         self.ui_progress = self.state_timer / self.config.ADJUST_FRAMES
         
         if not current_edges:
-             self.ui_main_text = "Adjusting..."
+             self.ui_main_text = "位置調整中..."
 
         if self.state_timer > self.config.ADJUST_FRAMES:
             # Log Tracking Accuracy
@@ -448,7 +470,12 @@ class PhotoBoothApp:
             remaining_sec = math.ceil(self.countdown_timer / self.config.FPS)
             
             # 画面中央に大きくカウントダウン表示
+            # 画面中央に大きくカウントダウン表示
             self.ui_center_text = str(remaining_sec)
+            
+            # カウントダウン中も下部に「ポーズをとって！」を表示
+            self.ui_main_text = "ポーズをとって！"
+            self.ui_sub_text = f"{self.taken_pictures_count + 1} / {self.config.MAX_PICTURE}"
             
             if self.countdown_timer <= 0:
                 self._perform_capture(frame)
@@ -463,8 +490,8 @@ class PhotoBoothApp:
             # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
             frame[:] = self.last_frame_with_pose if self.last_frame_with_pose is not None else frame.copy()
             
-            self.ui_main_text = f"Pose for Picture! ({self.taken_pictures_count + 1}/{self.config.MAX_PICTURE})"
-            self.ui_sub_text = "Make Circle to Snap"
+            self.ui_main_text = "「マル」を作って撮影"
+            self.ui_sub_text = f"{self.taken_pictures_count + 1} / {self.config.MAX_PICTURE}"
 
             if self.last_gesture_detected:
                 print("撮影ジェスチャー検知: カウントダウン開始")
@@ -495,7 +522,7 @@ class PhotoBoothApp:
         """PICTURE_COOLDOWN: 連続撮影防止と確認用"""
         self.state_timer += 1
         self._shutter_flash(frame, self.state_timer)
-        self.ui_center_text = "Nice Shot!"
+        self.ui_center_text = "撮影完了！"
         
         if self.state_timer > self.config.COOLDOWN_FRAMES:
             self._transition_to(AppState.TAKE_PICTURE)
@@ -539,10 +566,10 @@ class PhotoBoothApp:
              
              # Avoid overlap with QR code
              self.ui_center_text = None
-             self.ui_main_text = "ALL DONE! Thank you."
+             self.ui_main_text = "完了！ お疲れ様でした"
         else:
-             self.ui_center_text = "ALL DONE!"
-             self.ui_main_text = "Thank you for using."
+             self.ui_center_text = "完了！"
+             self.ui_main_text = "ご利用ありがとうございました"
         
         # 残り時間のバー
         self.ui_progress = 1.0 - (self.state_timer / self.config.RESULT_FRAMES)
@@ -596,11 +623,21 @@ class PhotoBoothApp:
         # Phase (Left) + Timeout/Status (Right)
         
         # Override status for Timeout if applicable
-        if self.state == AppState.TAKE_PICTURE and not self.is_counting_down:
+        if self.state.name == "TAKE_PICTURE" and not self.is_counting_down:
              remaining = int((self.config.TAKE_PICTURE_TIMEOUT_FRAMES - self.state_timer) / self.config.FPS)
-             self.ui_status_text = f"Timeout: {remaining}s"
+             self.ui_status_text = f"残り: {remaining}秒"
 
-        self.overlay.draw_header(frame, f"PHASE: {self.state.name}", self.ui_status_text)
+        # Translate State Name for Header
+        state_jp_map = {
+            "READY": "待機中",
+            "PRE_ADJUST": "準備中",
+            "ADJUST": "移動中",
+            "TAKE_PICTURE": "撮影",
+            "PICTURE_COOLDOWN": "保存中",
+            "RESULT": "完了"
+        }
+        state_jp = state_jp_map.get(self.state.name, self.state.name)
+        self.overlay.draw_header(frame, f"状態: {state_jp}", self.ui_status_text)
 
         # 2. Footer
         self.overlay.draw_footer(frame, self.ui_main_text, self.ui_sub_text, self.ui_progress)

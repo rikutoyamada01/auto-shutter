@@ -1,74 +1,138 @@
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+import os
 
 class UIOverlay:
     def __init__(self):
         self.header_height = 40
         self.footer_height = 60
+        
+        # Load Japanese Font
+        self.font_path = "C:/Windows/Fonts/meiryo.ttc"
+        if not os.path.exists(self.font_path):
+             self.font_path = "C:/Windows/Fonts/msgothic.ttc" # Fallback
+             
+        self.default_font_size = 32
+        try:
+            self.font = ImageFont.truetype(self.font_path, self.default_font_size)
+        except OSError:
+            print("Warning: Japanese font not found. Using default PIL font.")
+            self.font = ImageFont.load_default()
 
-    def draw_text_with_outline(self, frame, text, pos, scale, color, thickness=2, outline_color=(0, 0, 0)):
-        """Helper to draw text with a black outline for readability without background bars."""
-        cv2.putText(frame, text, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, outline_color, thickness + 3)
-        cv2.putText(frame, text, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness)
+    def draw_text_jp(self, frame, text, pos, size, color, outline_color=(0, 0, 0), thickness=2):
+        """
+        Draws text using PIL to support Japanese characters.
+        """
+        if not text:
+            return frame
+
+        # Convert to PIL
+        # 1. OpenCV (BGR) -> RGB
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
+        draw = ImageDraw.Draw(pil_image)
+        
+        # Load font with specific size
+        # Note: Loading font every time might be slow, but usually UI text count is low.
+        # Optimization: Cache fonts of different sizes if needed. For now, simple load.
+        try:
+            font = ImageFont.truetype(self.font_path, size)
+        except:
+             font = ImageFont.load_default()
+
+        x, y = pos
+        
+        # Draw Outline (simulate by drawing multiple times)
+        if thickness > 0:
+            for dx in range(-thickness, thickness + 1):
+                for dy in range(-thickness, thickness + 1):
+                    draw.text((x + dx, y + dy), text, font=font, fill=outline_color)
+        
+        # Main text
+        draw.text((x, y), text, font=font, fill=color)
+
+        # Convert back to OpenCV
+        frame[:] = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
 
     def draw_header(self, frame, mode_text, status_text=""):
         h, w = frame.shape[:2]
-        # No background bar
         
-        # Mode (Left) - slightly larger, Green for active feel
-        self.draw_text_with_outline(frame, mode_text, (10, 35), 1.0, (0, 255, 0), 2)
+        # Mode (Left)
+        self.draw_text_jp(frame, mode_text, (20, 20), 24, (0, 255, 0), thickness=2)
         
-        # Status (Right) - Red for warnings/timeout
+        # Status (Right)
         if status_text:
-            text_size = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-            x = w - text_size[0] - 10
-            self.draw_text_with_outline(frame, status_text, (x, 35), 0.8, (0, 0, 255), 2)
+            # Need to measure text width to align right. PIL has getbbox or getlength
+            # Just approximate layout or use simplified fixed position if measurement is complex
+            # PIL getlength is available in newer versions. getbbox is safer.
+            # Let's align roughly or use fixed offset? Right alignment requires width.
+            
+            # Simple right alignment logic
+            dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+            try:
+                font = ImageFont.truetype(self.font_path, 20)
+                text_bbox = dummy_draw.textbbox((0, 0), status_text, font=font)
+                text_w = text_bbox[2] - text_bbox[0]
+            except:
+                text_w = 200 # Fallback estimate
+
+            x = w - text_w - 20
+            self.draw_text_jp(frame, status_text, (x, 20), 20, (0, 0, 255), thickness=2)
 
     def draw_footer(self, frame, main_text, sub_text=None, progress=None):
         h, w = frame.shape[:2]
-        # No background bar
 
-        # Main text (Center) - White with heavy outline
+        # Main text (Center)
         if main_text:
-            text_scale = 1.0
-            thickness = 2
-            text_size = cv2.getTextSize(main_text, cv2.FONT_HERSHEY_SIMPLEX, text_scale, thickness)[0]
-            text_x = (w - text_size[0]) // 2
-            text_y = h - 45
-            if sub_text:
-                text_y = h - 65
+            font_size = 32
+            # Center alignment
+            dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+            font = ImageFont.truetype(self.font_path, font_size)
+            text_bbox = dummy_draw.textbbox((0, 0), main_text, font=font)
+            text_w = text_bbox[2] - text_bbox[0]
             
-            self.draw_text_with_outline(frame, main_text, (text_x, text_y), text_scale, (255, 255, 255), thickness)
+            x = (w - text_w) // 2
+            y = h - 80
+            if sub_text:
+                 y = h - 100
+            
+            self.draw_text_jp(frame, main_text, (x, y), font_size, (255, 255, 255), thickness=2)
         
-        # Sub text (Below main, smaller)
+        # Sub text
         if sub_text:
-             text_scale = 0.6
-             thickness = 1
-             text_size = cv2.getTextSize(sub_text, cv2.FONT_HERSHEY_SIMPLEX, text_scale, thickness)[0]
-             text_x = (w - text_size[0]) // 2
-             self.draw_text_with_outline(frame, sub_text, (text_x, h - 30), text_scale, (200, 200, 200), thickness)
+             font_size = 20
+             dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+             font = ImageFont.truetype(self.font_path, font_size)
+             text_bbox = dummy_draw.textbbox((0, 0), sub_text, font=font)
+             text_w = text_bbox[2] - text_bbox[0]
+             
+             x = (w - text_w) // 2
+             self.draw_text_jp(frame, sub_text, (x, h - 40), font_size, (200, 200, 200), thickness=1)
 
-        # Progress bar (Bottom edge) - Keep this as it's non-intrusive
+        # Progress bar (Bottom edge) - CV2 is fine for shapes
         if progress is not None:
              bar_height = 20
              p = max(0.0, min(1.0, progress))
              
-             # Draw background track for better contrast
              cv2.rectangle(frame, (0, h - bar_height), (w, h), (0, 0, 0), -1)
-             
-             # Draw progress
              cv2.rectangle(frame, (0, h - bar_height), (int(w * p), h), (0, 255, 255), -1)
 
-    def draw_center_status(self, frame, text, color=(0, 255, 0), scale=2.0, thickness=3):
+    def draw_center_status(self, frame, text, color=(0, 255, 0), scale=None, thickness=2):
+        # Scale ignored, using fixed massive font size
+        font_size = 60
         h, w = frame.shape[:2]
-        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
-        text_x = (w - text_size[0]) // 2
-        text_y = (h + text_size[1]) // 2
         
-        # Text Outline (Black)
-        cv2.putText(frame, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), thickness + 4)
-        # Main Text
-        cv2.putText(frame, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness)
+        dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+        font = ImageFont.truetype(self.font_path, font_size)
+        text_bbox = dummy_draw.textbbox((0, 0), text, font=font)
+        text_w = text_bbox[2] - text_bbox[0]
+        text_h = text_bbox[3] - text_bbox[1]
+        
+        x = (w - text_w) // 2
+        y = (h - text_h) // 2
+        
+        self.draw_text_jp(frame, text, (x, y), font_size, color, thickness=3)
 
     def draw_qr_result(self, frame, qr_image):
          """Draws QR code in the center of the screen."""
