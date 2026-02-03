@@ -636,10 +636,10 @@ class PhotoBoothApp:
              
              # Avoid overlap with QR code
              self.ui_center_text = None
-             self.ui_main_text = "完了！ お疲れ様でした"
+             self.ui_main_text = UIText.get_text("complete", self.use_japanese)
         else:
-             self.ui_center_text = "完了！"
-             self.ui_main_text = "ご利用ありがとうございました"
+             self.ui_center_text = UIText.get_text("complete", self.use_japanese)
+             self.ui_main_text = UIText.get_text("thank_you", self.use_japanese)
         
         # 残り時間のバー
         self.ui_progress = 1.0 - (self.state_timer / self.config.RESULT_FRAMES)
