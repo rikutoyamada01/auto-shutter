@@ -12,6 +12,7 @@ from detect_circle_gesture import CircleGestureDetector
 from profiler import profiler
 import simple_server_qr
 from ui_overlay import UIOverlay
+from logger import LoggerManager, LogConfig
 
 # --- 設定値管理 ---
 @dataclass(frozen=True)
@@ -69,9 +70,13 @@ class PhotoBoothApp:
         self.robot = None
         self.config = Config() # プロパティアクセス用
         
+        # ロガーの初期化
+        self.logger = LoggerManager(LogConfig())
+        
         # 状態管理用変数
         self.state_timer = 0
         self.taken_pictures_count = 0
+        self.frame_count = 0
         
         # 撮影カウントダウン用
         self.is_counting_down = False
@@ -199,11 +204,16 @@ class PhotoBoothApp:
         """メインループ"""
         try:
             while True:
-                start_time = time.time()
+                loop_start_time = time.time()
+                self.frame_count += 1
                 
+                # タイミング計測用
+                timings = {}
 
                 with profiler.measure("cap_read"):
+                    cap_start = time.time()
                     ret, frame = self.read_latest(self.cap)
+                    timings['cap_read'] = (time.time() - cap_start) * 1000
                 
                 if not ret:
                     self.read_failures += 1
@@ -239,21 +249,37 @@ class PhotoBoothApp:
                 self.ui_qr_image = None
                 
                 with profiler.measure(f"process_state_{self.state.name}"):
+                    process_start = time.time()
                     self._process_state(frame)
+                    timings['process_state'] = (time.time() - process_start) * 1000
 
                 # UI情報のオーバーレイ描画
                 with profiler.measure("draw_ui"):
+                    draw_start = time.time()
                     self._draw_ui(frame)
+                    timings['draw_ui'] = (time.time() - draw_start) * 1000
 
                 with profiler.measure("imshow"):
+                    imshow_start = time.time()
                     cv2.imshow(self.config.WINDOW_NAME, frame)
+                    timings['imshow'] = (time.time() - imshow_start) * 1000
+
+                # パフォーマンスログを記録
+                frame_time = (time.time() - loop_start_time) * 1000
+                fps = 1000.0 / frame_time if frame_time > 0 else 0
+                self.logger.log_performance(
+                    fps=fps,
+                    frame_time_ms=frame_time,
+                    state=self.state.name,
+                    timings=timings
+                )
 
                 # 入力処理
                 if not self._handle_input():
                     break
                 
                 # FPS制御
-                elapsed = time.time() - start_time
+                elapsed = time.time() - loop_start_time
                 sleep_time = (1.0 / self.config.FPS) - elapsed
                 if sleep_time > 0:
                     time.sleep(sleep_time)
@@ -289,6 +315,16 @@ class PhotoBoothApp:
             with profiler.measure("detect_circle_gesture"):
                 # MediaPipe detector call
                 self.last_frame_with_pose, self.last_gesture_detected = self.gesture_detector.detect(frame)
+            
+            # ジェスチャーログを記録
+            self.logger.log_gesture(
+                state=self.state.name,
+                detected=self.last_gesture_detected,
+                hand_pos=None,  # TODO: 手の位置を取得する場合は追加
+                confidence=1.0 if self.last_gesture_detected else 0.0,
+                countdown_active=False,
+                frame_number=self.frame_count
+            )
         
         # 描画結果を反映 (キャッシュから)
         # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
@@ -370,6 +406,11 @@ class PhotoBoothApp:
         # Priority: Edge (Safety/Framing) > Approach (Too Far)
         # needs_backward: Top or (Left AND Right)
         needs_backward = is_top or (is_left and is_right)
+        
+        # ロボット動作の決定
+        robot_action = "NONE"
+        motor_speed = 0.0
+        
         if current_edges:
             # Visual Feedback
             warnings = [e for e in current_edges if e in ["TOP", "LEFT", "RIGHT"]]
@@ -388,37 +429,53 @@ class PhotoBoothApp:
             if self.robot:
                 try:
                     if needs_backward:
-                        print(f"[DEBUG] Robot BACKWARD (Speed: {self.config.MOTOR_SPEED})")
-                        self.robot.backward(speed=self.config.MOTOR_SPEED)
+                        robot_action = "BACKWARD"
+                        motor_speed = self.config.MOTOR_SPEED
+                        print(f"[DEBUG] Robot BACKWARD (Speed: {motor_speed})")
+                        self.robot.backward(speed=motor_speed)
                     elif is_right:
                         # Person is on RIGHT edge -> Turn RIGHT to center them.
+                        robot_action = "TURN_RIGHT"
+                        motor_speed = self.config.MOTOR_SPEED
                         print(f"[DEBUG] Robot TURN RIGHT (Left Motor Forward)")
-                        self.robot.left_motor.forward(speed=self.config.MOTOR_SPEED)
+                        self.robot.left_motor.forward(speed=motor_speed)
                         self.robot.right_motor.stop()
                     elif is_left:
                         # Person is on LEFT edge -> Turn LEFT to center them.
+                        robot_action = "TURN_LEFT"
+                        motor_speed = self.config.MOTOR_SPEED
                         print(f"[DEBUG] Robot TURN LEFT (Right Motor Forward)")
-                        self.robot.right_motor.forward(speed=self.config.MOTOR_SPEED)
+                        self.robot.right_motor.forward(speed=motor_speed)
                         self.robot.left_motor.stop()
                     elif is_far:
                         # APPROACH: Only if NO other edge warnings (Top, Left, Right)
-                        # The "elif" structure here guarantees that if is_right or is_left were true,
-                        # we would have taken those branches.
-                        # note: needs_backward covers TOP.
-                        # So simply "elif is_far:" is sufficient to ensure priority.
-                        print(f"[DEBUG] Robot FORWARD (Speed: {self.config.MOTOR_SPEED})")
-                        self.robot.forward(speed=self.config.MOTOR_SPEED)
+                        robot_action = "FORWARD"
+                        motor_speed = self.config.MOTOR_SPEED
+                        print(f"[DEBUG] Robot FORWARD (Speed: {motor_speed})")
+                        self.robot.forward(speed=motor_speed)
                         
                 except Exception as e:
                     print(f"Warning: Robot move failed: {e}")
         else:
+            robot_action = "STOP"
             if self.robot:
                 try:
                     # print("[DEBUG] Robot STOP")
                     self.robot.stop()
                 except:
                     pass
-                
+        
+        # 距離調整ログを記録（5フレームに1回）
+        if self.state_timer % 5 == 0:
+            self.logger.log_distance(
+                edges=current_edges,
+                bbox=self.last_bbox,
+                frame_width=self.config.RESOLUTION_WIDTH,
+                frame_center=self.config.RESOLUTION_WIDTH / 2,
+                robot_action=robot_action,
+                motor_speed=motor_speed,
+                frame_number=self.frame_count
+            )
 
         
         self.state_timer += 1
@@ -485,6 +542,16 @@ class PhotoBoothApp:
             if self.state_timer % 5 == 0 and self.gesture_detector: 
                 with profiler.measure("detect_circle_gesture"):
                     self.last_frame_with_pose, self.last_gesture_detected = self.gesture_detector.detect(frame)
+                
+                # ジェスチャーログを記録
+                self.logger.log_gesture(
+                    state=self.state.name,
+                    detected=self.last_gesture_detected,
+                    hand_pos=None,
+                    confidence=1.0 if self.last_gesture_detected else 0.0,
+                    countdown_active=self.is_counting_down,
+                    frame_number=self.frame_count
+                )
             
             # 描画結果を反映 (キャッシュから)
             # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
@@ -665,6 +732,11 @@ class PhotoBoothApp:
         if self.cap:
             self.cap.release()
         cv2.destroyAllWindows()
+        
+        # ロガーを閉じる
+        if self.logger:
+            self.logger.close()
+        
         print("終了")
 
     def _check_is_raspberry_pi(self) -> bool:
