@@ -1,0 +1,13 @@
+timestamp,state,detected,hand_x,hand_y,confidence,countdown_active,frame_number
+2026-02-03 12:20:52.033,READY,False,,,0.000,False,1
+2026-02-03 12:20:53.160,READY,False,,,0.000,False,6
+2026-02-03 12:20:53.887,READY,False,,,0.000,False,11
+2026-02-03 12:20:54.613,READY,False,,,0.000,False,16
+2026-02-03 12:20:55.336,READY,False,,,0.000,False,21
+2026-02-03 12:20:56.163,READY,False,,,0.000,False,26
+2026-02-03 12:20:56.879,READY,False,,,0.000,False,31
+2026-02-03 12:20:57.615,READY,False,,,0.000,False,36
+2026-02-03 12:20:58.360,READY,False,,,0.000,False,41
+2026-02-03 12:20:59.112,READY,False,,,0.000,False,46
+2026-02-03 12:20:59.859,READY,False,,,0.000,False,51
+2026-02-03 12:21:00.703,READY,False,,,0.000,False,56

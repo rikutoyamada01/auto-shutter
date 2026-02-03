@@ -1,0 +1,2 @@
+timestamp,state,detected,hand_x,hand_y,confidence,countdown_active,frame_number
+2026-02-03 11:38:59.292,READY,False,,,0.000,False,1

@@ -1,0 +1,11 @@
+{
+  "session_dir": "logs/session_20260203_113857",
+  "start_time": "2026-02-03 11:38:57",
+  "end_time": "2026-02-03 11:38:59",
+  "duration_seconds": 1.983692,
+  "logs": {
+    "performance": true,
+    "gesture": true,
+    "distance": true
+  }
+}
