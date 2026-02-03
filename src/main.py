@@ -12,6 +12,7 @@ from detect_circle_gesture import CircleGestureDetector
 from profiler import profiler
 import simple_server_qr
 from ui_overlay import UIOverlay
+from ui_text import UIText
 from logger import LoggerManager, LogConfig
 
 # --- 設定値管理 ---
@@ -107,6 +108,7 @@ class PhotoBoothApp:
 
         # UI Overlay & State
         self.overlay = UIOverlay()
+        self.use_japanese = self.overlay.use_japanese
         self.ui_status_text = ""
         self.ui_main_text = ""
         self.ui_sub_text = ""
@@ -331,10 +333,10 @@ class PhotoBoothApp:
         frame[:] = self.last_frame_with_pose if self.last_frame_with_pose is not None else frame.copy()
 
         if self.last_gesture_detected:
-            self.ui_center_text = "開始します！"
+            self.ui_center_text = UIText.get_text("starting", self.use_japanese)
             self._transition_to(AppState.PRE_ADJUST)
         else:
-            self.ui_main_text = "「マル」を作ってスタート"
+            self.ui_main_text = UIText.get_text("ready_gesture", self.use_japanese)
         
         self.state_timer += 1
 
@@ -344,7 +346,7 @@ class PhotoBoothApp:
         
         # 描画はREADYの最後のフレーム(結果表示)を維持するか、あるいはカメラ映像そのままでも良い
         # ここでは普通にカメラ映像を表示しつつ、カウントダウン的なテキストを出す
-        self.ui_center_text = "手を下ろしてください"
+        self.ui_center_text = UIText.get_text("lower_hands", self.use_japanese)
         self.ui_progress = self.state_timer / self.config.PRE_ADJUST_FRAMES
         
         if self.state_timer > self.config.PRE_ADJUST_FRAMES:
@@ -415,16 +417,17 @@ class PhotoBoothApp:
             # Visual Feedback
             warnings = [e for e in current_edges if e in ["TOP", "LEFT", "RIGHT"]]
             if warnings:
-                # Japanese translation for edges
-                jp_warnings = []
-                if "TOP" in warnings: jp_warnings.append("上")
-                if "LEFT" in warnings: jp_warnings.append("左")
-                if "RIGHT" in warnings: jp_warnings.append("右")
+                # Translation for edges
+                translated_warnings = []
+                if "TOP" in warnings: translated_warnings.append(UIText.get_text("edge_top", self.use_japanese))
+                if "LEFT" in warnings: translated_warnings.append(UIText.get_text("edge_left", self.use_japanese))
+                if "RIGHT" in warnings: translated_warnings.append(UIText.get_text("edge_right", self.use_japanese))
                 
-                self.ui_center_text = f"近すぎます: {', '.join(jp_warnings)}"
+                prefix = UIText.get_text("too_close", self.use_japanese)
+                self.ui_center_text = f"{prefix}: {', '.join(translated_warnings)}"
                 self.ui_center_color = (0, 0, 255) # Red
             elif is_far:
-                 self.ui_main_text = "近づいています..."
+                 self.ui_main_text = UIText.get_text("approaching", self.use_japanese)
 
             if self.robot:
                 try:
@@ -484,7 +487,7 @@ class PhotoBoothApp:
         self.ui_progress = self.state_timer / self.config.ADJUST_FRAMES
         
         if not current_edges:
-             self.ui_main_text = "位置調整中..."
+             self.ui_main_text = UIText.get_text("adjusting", self.use_japanese)
 
         if self.state_timer > self.config.ADJUST_FRAMES:
             # Log Tracking Accuracy
@@ -531,7 +534,7 @@ class PhotoBoothApp:
             self.ui_center_text = str(remaining_sec)
             
             # カウントダウン中も下部に「ポーズをとって！」を表示
-            self.ui_main_text = "ポーズをとって！"
+            self.ui_main_text = UIText.get_text("pose", self.use_japanese)
             self.ui_sub_text = f"{self.taken_pictures_count + 1} / {self.config.MAX_PICTURE}"
             
             if self.countdown_timer <= 0:
@@ -557,7 +560,7 @@ class PhotoBoothApp:
             # キャッシュされたフレームがない場合（最初の数フレームなど）は現在のフレームを使用
             frame[:] = self.last_frame_with_pose if self.last_frame_with_pose is not None else frame.copy()
             
-            self.ui_main_text = "「マル」を作って撮影"
+            self.ui_main_text = UIText.get_text("take_picture_gesture", self.use_japanese)
             self.ui_sub_text = f"{self.taken_pictures_count + 1} / {self.config.MAX_PICTURE}"
 
             if self.last_gesture_detected:
@@ -589,7 +592,7 @@ class PhotoBoothApp:
         """PICTURE_COOLDOWN: 連続撮影防止と確認用"""
         self.state_timer += 1
         self._shutter_flash(frame, self.state_timer)
-        self.ui_center_text = "撮影完了！"
+        self.ui_center_text = UIText.get_text("photo_taken", self.use_japanese)
         
         if self.state_timer > self.config.COOLDOWN_FRAMES:
             self._transition_to(AppState.TAKE_PICTURE)
@@ -692,19 +695,15 @@ class PhotoBoothApp:
         # Override status for Timeout if applicable
         if self.state.name == "TAKE_PICTURE" and not self.is_counting_down:
              remaining = int((self.config.TAKE_PICTURE_TIMEOUT_FRAMES - self.state_timer) / self.config.FPS)
-             self.ui_status_text = f"残り: {remaining}秒"
+             remaining_text = UIText.get_text("remaining", self.use_japanese)
+             sec_text = UIText.get_text("seconds", self.use_japanese)
+             self.ui_status_text = f"{remaining_text}: {remaining}{sec_text}"
 
         # Translate State Name for Header
-        state_jp_map = {
-            "READY": "待機中",
-            "PRE_ADJUST": "準備中",
-            "ADJUST": "移動中",
-            "TAKE_PICTURE": "撮影",
-            "PICTURE_COOLDOWN": "保存中",
-            "RESULT": "完了"
-        }
-        state_jp = state_jp_map.get(self.state.name, self.state.name)
-        self.overlay.draw_header(frame, f"状態: {state_jp}", self.ui_status_text)
+        state_key = f"state_{self.state.name.lower()}"
+        state_text = UIText.get_text(state_key, self.use_japanese)
+        status_label = UIText.get_text("status", self.use_japanese)
+        self.overlay.draw_header(frame, f"{status_label}: {state_text}", self.ui_status_text)
 
         # 2. Footer
         self.overlay.draw_footer(frame, self.ui_main_text, self.ui_sub_text, self.ui_progress)

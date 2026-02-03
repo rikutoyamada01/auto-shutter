@@ -13,17 +13,25 @@ class UIOverlay:
         self.font_path = self._find_japanese_font()
         self.default_font_size = 32
         
+        # Determine if we should use Japanese (based on font availability)
+        self.use_japanese = self.font_path is not None and not self.font_path.endswith("DejaVuSans.ttf")
+        
         # Load default font
         try:
             if self.font_path:
                 self.font = ImageFont.truetype(self.font_path, self.default_font_size)
-                print(f"[UI] Loaded font: {self.font_path}")
+                if self.use_japanese:
+                    print(f"[UI] Loaded Japanese font: {self.font_path}")
+                else:
+                    print(f"[UI] Japanese font not found, using English UI with: {self.font_path}")
             else:
-                print("[UI] No TrueType font found, using default font")
+                print("[UI] No TrueType font found, using English UI with default font")
                 self.font = ImageFont.load_default()
+                self.use_japanese = False
         except Exception as e:
-            print(f"[UI] Font loading failed: {e}, using default font")
+            print(f"[UI] Font loading failed: {e}, using English UI with default font")
             self.font = ImageFont.load_default()
+            self.use_japanese = False
     
     def _find_japanese_font(self):
         """Find a suitable Japanese font for the current platform"""
