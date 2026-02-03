@@ -2,23 +2,59 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import os
+import sys
 
 class UIOverlay:
     def __init__(self):
         self.header_height = 40
         self.footer_height = 60
         
-        # Load Japanese Font
-        self.font_path = "C:/Windows/Fonts/meiryo.ttc"
-        if not os.path.exists(self.font_path):
-             self.font_path = "C:/Windows/Fonts/msgothic.ttc" # Fallback
-             
+        # Cross-platform Japanese font detection
+        self.font_path = self._find_japanese_font()
         self.default_font_size = 32
+        
+        # Load default font
         try:
-            self.font = ImageFont.truetype(self.font_path, self.default_font_size)
-        except OSError:
-            print("Warning: Japanese font not found. Using default PIL font.")
+            if self.font_path:
+                self.font = ImageFont.truetype(self.font_path, self.default_font_size)
+                print(f"[UI] Loaded font: {self.font_path}")
+            else:
+                print("[UI] No TrueType font found, using default font")
+                self.font = ImageFont.load_default()
+        except Exception as e:
+            print(f"[UI] Font loading failed: {e}, using default font")
             self.font = ImageFont.load_default()
+    
+    def _find_japanese_font(self):
+        """Find a suitable Japanese font for the current platform"""
+        font_candidates = []
+        
+        if sys.platform == "win32":
+            # Windows fonts
+            font_candidates = [
+                "C:/Windows/Fonts/meiryo.ttc",
+                "C:/Windows/Fonts/msgothic.ttc",
+                "C:/Windows/Fonts/msmincho.ttc",
+                "C:/Windows/Fonts/YuGothM.ttc",
+            ]
+        else:
+            # Linux/Raspberry Pi fonts
+            font_candidates = [
+                "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
+                "/usr/share/fonts/truetype/fonts-japanese-mincho.ttf",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/takao-gothic/TakaoPGothic.ttf",
+                "/usr/share/fonts/truetype/vlgothic/VL-Gothic-Regular.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Fallback non-Japanese
+            ]
+        
+        # Find first existing font
+        for font in font_candidates:
+            if os.path.exists(font):
+                return font
+        
+        return None
 
     def draw_text_jp(self, frame, text, pos, size, color, outline_color=(0, 0, 0), thickness=2):
         """
@@ -36,10 +72,15 @@ class UIOverlay:
         # Load font with specific size
         # Note: Loading font every time might be slow, but usually UI text count is low.
         # Optimization: Cache fonts of different sizes if needed. For now, simple load.
-        try:
-            font = ImageFont.truetype(self.font_path, size)
-        except:
-             font = ImageFont.load_default()
+        font = None
+        if self.font_path:
+            try:
+                font = ImageFont.truetype(self.font_path, size)
+            except Exception as e:
+                print(f"[UI] Failed to load font size {size}: {e}")
+        
+        if font is None:
+            font = ImageFont.load_default()
 
         x, y = pos
         
@@ -70,12 +111,21 @@ class UIOverlay:
             
             # Simple right alignment logic
             dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-            try:
-                font = ImageFont.truetype(self.font_path, 20)
-                text_bbox = dummy_draw.textbbox((0, 0), status_text, font=font)
-                text_w = text_bbox[2] - text_bbox[0]
-            except:
-                text_w = 200 # Fallback estimate
+            font = None
+            if self.font_path:
+                try:
+                    font = ImageFont.truetype(self.font_path, 20)
+                except:
+                    pass
+            
+            if font:
+                try:
+                    text_bbox = dummy_draw.textbbox((0, 0), status_text, font=font)
+                    text_w = text_bbox[2] - text_bbox[0]
+                except:
+                    text_w = 200  # Fallback estimate
+            else:
+                text_w = 200  # Fallback estimate
 
             x = w - text_w - 20
             self.draw_text_jp(frame, status_text, (x, 20), 20, (0, 0, 255), thickness=2)
@@ -88,9 +138,20 @@ class UIOverlay:
             font_size = 32
             # Center alignment
             dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-            font = ImageFont.truetype(self.font_path, font_size)
-            text_bbox = dummy_draw.textbbox((0, 0), main_text, font=font)
-            text_w = text_bbox[2] - text_bbox[0]
+            font = None
+            if self.font_path:
+                try:
+                    font = ImageFont.truetype(self.font_path, font_size)
+                except:
+                    font = ImageFont.load_default()
+            else:
+                font = ImageFont.load_default()
+            
+            try:
+                text_bbox = dummy_draw.textbbox((0, 0), main_text, font=font)
+                text_w = text_bbox[2] - text_bbox[0]
+            except:
+                text_w = len(main_text) * 16  # Rough estimate
             
             x = (w - text_w) // 2
             y = h - 80
@@ -103,9 +164,20 @@ class UIOverlay:
         if sub_text:
              font_size = 20
              dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-             font = ImageFont.truetype(self.font_path, font_size)
-             text_bbox = dummy_draw.textbbox((0, 0), sub_text, font=font)
-             text_w = text_bbox[2] - text_bbox[0]
+             font = None
+             if self.font_path:
+                 try:
+                     font = ImageFont.truetype(self.font_path, font_size)
+                 except:
+                     font = ImageFont.load_default()
+             else:
+                 font = ImageFont.load_default()
+             
+             try:
+                 text_bbox = dummy_draw.textbbox((0, 0), sub_text, font=font)
+                 text_w = text_bbox[2] - text_bbox[0]
+             except:
+                 text_w = len(sub_text) * 10  # Rough estimate
              
              x = (w - text_w) // 2
              self.draw_text_jp(frame, sub_text, (x, h - 40), font_size, (200, 200, 200), thickness=1)
@@ -124,10 +196,22 @@ class UIOverlay:
         h, w = frame.shape[:2]
         
         dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-        font = ImageFont.truetype(self.font_path, font_size)
-        text_bbox = dummy_draw.textbbox((0, 0), text, font=font)
-        text_w = text_bbox[2] - text_bbox[0]
-        text_h = text_bbox[3] - text_bbox[1]
+        font = None
+        if self.font_path:
+            try:
+                font = ImageFont.truetype(self.font_path, font_size)
+            except:
+                font = ImageFont.load_default()
+        else:
+            font = ImageFont.load_default()
+        
+        try:
+            text_bbox = dummy_draw.textbbox((0, 0), text, font=font)
+            text_w = text_bbox[2] - text_bbox[0]
+            text_h = text_bbox[3] - text_bbox[1]
+        except:
+            text_w = len(text) * 30  # Rough estimate
+            text_h = font_size
         
         x = (w - text_w) // 2
         y = (h - text_h) // 2
