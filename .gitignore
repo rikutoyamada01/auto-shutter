@@ -9,7 +9,6 @@ __pycache__/
 *.pt
 
 captured_photos/
-logs/
 tracking_log.csv
 
 # Distribution / packaging
