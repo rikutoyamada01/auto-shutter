@@ -20,7 +20,7 @@ from logger import LoggerManager, LogConfig
 class Config:
     CAMERA_INDEX: int = 0
     MARGIN: int = 80
-    MOTOR_SPEED: float = 0.3 # モーター速度 (0.2では動かない)
+    MOTOR_SPEED: float = 0.4 # モーター速度 (0.2では動かない)
     MAX_PICTURE: int = 3
     FPS: int = 15  # FPSを15に設定（処理負荷軽減のため）
     RESOLUTION_WIDTH: int = 640
